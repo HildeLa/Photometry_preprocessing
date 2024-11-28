@@ -41,7 +41,7 @@ class preprocess:
         continous_time = Excitation['continuous_time']
         return(Info)
 
-    def create_basic(self):
+    def create_basic(self, cutend = False):
         '''
         This is the same as create basic except that it uses Events.csv and Fluorescence-unaligned.csv.
         1) aligns events and all fluorescence to the 470 nm channel in one dataframe
@@ -56,6 +56,7 @@ class preprocess:
             [YYY_MM_DD-hh_mm_ss]: automatically generated folder as a recording is initiated in the photometry software
             Experiment_name: all recording in the same experiment should be in the same folder
 
+        :param: cutend: default set to False, set it to true if you know that you forgot to turn off the equipment before removing fiber
         :return: rawdata, data, data_seconds, signals, save_path
         'signals' is the most important dataframe containing all the data
         'save_path' will indicate where the data should be saved to
@@ -111,14 +112,14 @@ class preprocess:
         if len(events) < 1:
             rawdata = df_final
             rawdata = rawdata.loc[:, ~rawdata.columns.str.contains('^Unnamed')]
-            data = rawdata[rawdata["TimeStamp"] > 30]
+            data = rawdata[rawdata["TimeStamp"] > 30] 
         else:
             rawdata = pd.merge_asof(df_final, events[['TimeStamp', 'Event', 'State']], on='TimeStamp', direction='backward')
             rawdata = rawdata.loc[:,~rawdata.columns.str.contains('^Unnamed')]  # sometimes an Unnamed column has appeared...
             # removing first 15 seconds because of bleaching
             data = rawdata[rawdata["TimeStamp"] > 15000]  # removing first 15 seconds because of bleaching
-
-        data.drop(data.tail(300).index, inplace=True) #only
+        if cutend == True:
+            data = data.drop(data.tail(300).index) #This can be done if fiber was by mistake removed before 
         data_seconds = pd.DataFrame([second for second in data['TimeStamp'] / 1000], columns=['TimeStamp'])
         signals = pd.DataFrame()
         if Info['Light']['Led470Enable'] == True:
@@ -131,6 +132,7 @@ class preprocess:
         recording_time = self.path.split('/')[-2][:]  # use same file name as folder
         mousename = self.path.split('/')[-3][:4]
         mousename_recordtime = f'{mousename}_{recording_time}'
+        print(f'\n\n \033[1m Preprocessing data for {mousename} at {recording_time} ...\033[0m \n')
         experiments = self.path.split('/')[-4][:]  #
         session = self.path.split('/')[-3][5:]
         if '&' in session:
@@ -158,23 +160,38 @@ class preprocess:
         save_path = f'{mainfolder}/{experiments}/{session}/{mousename_recordtime}'
 
         return(rawdata, data, data_seconds, signals, save_path)
-
-    def extract_events(self): #This function must be generalised in case of multiple event inputs
-        data = self.data
-        if len(data.Event.unique()) == 1:
-            print('There are no recorded events, this function and add_event_bool() should not be called on')
-
+        
+ 
+    def extract_events(self): 
+        """
+        Here, each event type is assigned a boolean data column that is False except at the times where the event occurred -> True
+        """
+        data = self.data.copy()
+        
+        try:
+            if 'Event' not in data.columns:
+                raise KeyError("The DataFrame does not have an 'Event' column.")
+            
+            if len(data['Event'].unique()) == 1:
+                print("There are no recorded events, this function and add_event_bool() should not be called on.")
+                return pd.DataFrame()  # Return an empty DataFrame if no events are recorded.
+        except KeyError as e:
+            print(f"KeyError: {e}")
+            return pd.DataFrame()  # Return an empty DataFrame if 'Event' column is missing.
+    
+        # Proceed with the logic for extracting event information
         events = data['Event'].dropna().unique()
-        # Just gathering all the event time stamps
         event_dict = {}
         prev_name = 0
         startstops = pd.DataFrame()
+        
         for event in events:
-            name = event#'Input1' etc
+            name = event  # 'Input1', etc.
             state = data['Event']
-            data[f'{event}_event'] = (data['Event'] == event) & (data['State'] == 0)
+            data.loc[:, f'{event}_event'] = (data['Event'] == event) & (data['State'] == 0)
+    
+        return data[[f'{event}_event' for event in events]]
 
-        return data[[f'{event}_event'for event in events]]
 
 
     def low_pass_filt(self):
