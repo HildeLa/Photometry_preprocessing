@@ -239,7 +239,7 @@ class preprocess:
         filtered = pd.DataFrame()
         signals = self.signals
         sensors = self.sensors
-        fps = self.Info['Fps']
+        fps = self.Info['Fps']/len(sensors)
         
         #fig, axs = plt.subplots(len(signals),figsize = (15, 10), sharex=True)
         color_count = 0
@@ -280,7 +280,7 @@ class preprocess:
 
         #axs[-1].set(xlabel='seconds')
 
-        #fig.suptitle(f'Low-pass filtered signal')
+        #fig.suptitle(f'Low-pass filtered signal {mousename} ')
         #plt.savefig(self.save_path + '/low-pass_filtered.png', dpi=300)
         #plt.close()
         return filtered
@@ -336,7 +336,7 @@ class preprocess:
             color_count += 1
             ax.legend()
         axs[-1].set(xlabel='seconds')
-        fig.suptitle(f'detrended_data')
+        fig.suptitle(f'detrended_data {mousename}')
         plt.savefig(self.save_path + '/Detrended_data.png', dpi=300)
 
         # Plotting the filtered data with the exponential fit
@@ -354,7 +354,7 @@ class preprocess:
             ax.legend(lns, labs, loc=0)
 
         axs[-1].set(xlabel = 'seconds')
-        fig.suptitle(f'exponential fit')
+        fig.suptitle(f'exponential fit {mousename}')
         plt.savefig(self.save_path + '/exp-fit.png', dpi=300)
 
         return data_detrended, exp_fits
@@ -426,7 +426,7 @@ class preprocess:
             axs.set(xlabel='seconds', ylabel='z-scored fluorescence')
             axs.legend()
 
-        fig.suptitle(f'zscored_data')
+        fig.suptitle(f'zscored_data {mousename}')
         plt.savefig(self.save_path+'/zscored_figure.png', dpi = 300)
 
         return zscored_data
@@ -468,7 +468,7 @@ class preprocess:
             axs.set(xlabel='seconds', ylabel='Delta F fluorescence')
 
 
-        fig.suptitle(f'Delta F / F to exponential fit')
+        fig.suptitle(f'Delta F / F to exponential fit {mousename}')
         plt.savefig(self.save_path+'/deltaf-F_figure.png', dpi = 300)
         return dF_F
 
