@@ -41,7 +41,7 @@ class preprocess:
         continous_time = Excitation['continuous_time']
         return(Info)
 
-    def create_basic(self, cutend = False):
+    def create_basic(self, cutend = False, path_save = None):
         '''
         This is the same as create basic except that it uses Events.csv and Fluorescence-unaligned.csv.
         1) aligns events and all fluorescence to the 470 nm channel in one dataframe
@@ -130,35 +130,76 @@ class preprocess:
             signals['410'] = data['410']
 
         recording_time = self.path.split('/')[-2][:]  # use same file name as folder
-        mousename = self.path.split('/')[-3][:4]
+        mousename = self.path.split('/')[-3]#[:4]
         mousename_recordtime = f'{mousename}_{recording_time}'
         print(f'\n\n \033[1m Preprocessing data for {mousename} at {recording_time} ...\033[0m \n')
         experiments = self.path.split('/')[-4][:]  #
         session = self.path.split('/')[-3][5:]
         if '&' in session:
             session = session.replace('&', '-')
-        mainfolder = 'Processed'
-        # Check if the directory already exists
-        if not os.path.exists(f'{mainfolder}/{experiments}'):
-            # Create the directory
-            os.makedirs(f'{mainfolder}/{experiments}')
-            print("Directory created")
-        if not os.path.exists(f'{mainfolder}/{experiments}/{session}'):
-            # Create the directory
-            os.makedirs(f'{mainfolder}/{experiments}/{session}')
-            print("Directory created")
-        else:
-            print(f"Directory {mainfolder}/{experiments}/{session}/already exists")
 
-        if not os.path.exists(f'{mainfolder}/{experiments}/{session}/{mousename_recordtime}'):
-            # Create the directory
-            os.makedirs(f'{mainfolder}/{experiments}/{session}/{mousename_recordtime}')
-            print("Directory created")
-        else:
-            print(f'{mainfolder}/{experiments}/{session}/{mousename_recordtime} already exists')
 
-        save_path = f'{mainfolder}/{experiments}/{session}/{mousename_recordtime}'
+        if path_save is not None:
+            found_mouse_dir = False  # Flag to track if mousename was found
+            for dirpath, subdirs, files in os.walk(path_save):
+                # Check if `mousename` is in the last part of the directory path
+                if mousename in dirpath.split('/')[-1]:
+                    found_mouse_dir = True
+                    photometry_dir = os.path.join(dirpath, 'photometry')
+                    
+                    # Create the 'photometry' directory if it doesn't exist
+                    if not os.path.exists(photometry_dir):
+                        os.makedirs(photometry_dir)
+                        print(f"Directory created: {photometry_dir}")
+                    
+                    save_path = photometry_dir
+                    print("Save path set to:", save_path)
+                    break  # Exit loop once the save path is set
+        
+            # If `mousename` is not found, handle fallback save path creation
+            if not found_mouse_dir:
+                print("Mousename not found in path_save. Creating a new directory for the save path.")
+                
+                if not os.path.exists(path_save):
+                    os.makedirs(path_save)  # Ensure `path_save` exists
+                    print(f"Root path created: {path_save}")
+                
+                # Create a directory in the root of `path_save`
+                new_dir = f"{mousename}_{recording_time}_photometry"
+                save_path = os.path.join(path_save, new_dir)
+                
+                if not os.path.exists(save_path):
+                    os.makedirs(save_path)
+                    print(f"Directory created: {save_path}")
+                else:
+                    print(f"Directory already exists: {save_path}")
+        
+        if path_save is None:
+            mainfolder = 'Processed'
+            # Check if the directory already exists
+            if not os.path.exists(f'{mainfolder}/{experiments}'):
+                # Create the directory
+                os.makedirs(f'{mainfolder}/{experiments}')
+                print("Directory created")
+            if not os.path.exists(f'{mainfolder}/{experiments}/{session}'):
+                # Create the directory
+                os.makedirs(f'{mainfolder}/{experiments}/{session}')
+                print("Directory created")
+            else:
+                print(f"Directory {mainfolder}/{experiments}/{session}/ already exists")
+        
+            if not os.path.exists(f'{mainfolder}/{experiments}/{session}/{mousename_recordtime}'):
+                # Create the directory
+                os.makedirs(f'{mainfolder}/{experiments}/{session}/{mousename_recordtime}')
+                print("Directory created")
+            else:
+                print(f"{mainfolder}/{experiments}/{session}/{mousename_recordtime} already exists")
+        
+            save_path = f'{mainfolder}/{experiments}/{session}/{mousename_recordtime}'
 
+    
+            
+                        
         return(rawdata, data, data_seconds, signals, save_path)
         
  
@@ -197,64 +238,51 @@ class preprocess:
     def low_pass_filt(self):
         filtered = pd.DataFrame()
         signals = self.signals
+        sensors = self.sensors
         fps = self.Info['Fps']
-        for sensor in self.sensors:
+        
+        #fig, axs = plt.subplots(len(signals),figsize = (15, 10), sharex=True)
+        color_count = 0
+        print(sensors)
+        for signal in signals:
+            sensor = sensors[signal]
+            print(f'filtering {signal} with {sensor}')
             if sensor == 'G8m':
                 Wn = 25 #15#25 # three samples within the half decay time of sensor (120 ms -> 40 ms -> 25 Hz)
                 n = 2
-                b, a = butter(n, Wn, btype='low',fs=fps)  # N =  (the order of the filter), Wn =  is the critical frequency
-                filtered['filtered_470'] = filtfilt(b, a, signals['470'])
-                try:
-                    filtered['filtered_560'] = filtfilt(b, a, signals['560'])
-                    filtered['filtered_410'] = filtfilt(b, a, signals['410'])
-                except KeyError:
-                    pass
             elif sensor == 'g5-HT3':
                 Wn = 3#3 #tau off = -1.39
                 n = 2
-                b, a = butter(n, Wn, btype='low', fs=fps)
-                filtered['filtered_470'] = filtfilt(b, a, signals['470'])
-                try:
-                    filtered['filtered_560'] = filtfilt(b, a, signals['560'])
-                    filtered['filtered_410'] = filtfilt(b, a, signals['410'])
-                except KeyError:
-                    pass
+            
+
             elif type(sensor) == int:
                 Wn = 100 / (sensor / 3)
                 n = 2
-                b, a = butter(n, Wn, btype='low', fs=fps)
-                filtered['filtered_470'] = filtfilt(b, a, signals['470'])
-                try:
-                    filtered['filtered_560'] = filtfilt(b, a, signals['560'])
-                    filtered['filtered_410'] = filtfilt(b, a, signals['410'])
-                except KeyError:
-                    pass
+                
             else:
                 Wn = 1000 / (int(input("Enter sensor half decay time: ")) / 3)
                 n = 2
-                b, a = butter(n, Wn, btype='low', fs=fps)
-
-        fig, axs = plt.subplots(len(filtered.columns),figsize = (15, 10), sharex=True)
-        color_count = 0
-        for filt, signal, ax in zip(filtered.columns, signals.columns, axs):
-            line1 = ax.plot(self.data_seconds, signals[signal], alpha = 0.3, c=self.colors[color_count], label=signal)
-            #color_count += 1
+                
+            b, a = butter(n, Wn, btype='low',fs=fps)  # N =  (the order of the filter), Wn =  is the critical frequency
+            filtered[f'filtered_{signal}'] = filtfilt(b, a, signals[signal])
+            
+            '''line1 = ax.plot(self.data_seconds, signals[signal], alpha = 0.3, c=self.colors[color_count], label=signal)
+            ax.title(f'filtered {signal} signal ')
             ax2 = ax.twinx()
-            line2 = ax2.plot(self.data_seconds, filtered[filt], alpha = 1, c=self.colors[color_count], label=filt)
+            line2 = ax2.plot(self.data_seconds, filtered[f'filtered_{signal}'], alpha = 1, c=self.colors[color_count], label=f'filtered {signal}')
             ax2.set(ylabel='filtered')
             ax.set(ylabel='raw trace')
             color_count += 1
             lns = line1+line2
             labs = [l.get_label() for l in lns]
             ax.legend(lns, labs, loc=0)
-            ax.grid()
+            ax.grid()'''
 
+        #axs[-1].set(xlabel='seconds')
 
-        axs[-1].set(xlabel='seconds')
-
-        fig.suptitle(f'Low-pass filtered signal \n Sensor: {self.sensors[0]}, Wn: {Wn}, fps: {fps}')
-        plt.savefig(self.save_path + '/low-pass_filtered.png', dpi=300)
-
+        #fig.suptitle(f'Low-pass filtered signal')
+        #plt.savefig(self.save_path + '/low-pass_filtered.png', dpi=300)
+        #plt.close()
         return filtered
 
 
@@ -345,8 +373,10 @@ class preprocess:
             ax.set_title('410 nm - 470 nm correlation.')
             xlim = ax.get_xlim()[1]
             ylim = ax.get_ylim()[0]
-            ax.text(xlim-2, ylim+2,'Slope    : {:.3f}'.format(slope))
-            ax.text(xlim-2, ylim+1,'R-squared: {:.3f}'.format(r_value ** 2))
+            #ax.text(xlim-2, ylim+2,'Slope    : {:.3f}'.format(slope))
+            #ax.text(xlim-2, ylim+1,'R-squared: {:.3f}'.format(r_value ** 2))
+            print('Slope    : {:.3f}'.format(slope))
+            print('R-squared: {:.3f}'.format(r_value ** 2))
             plt.rcParams.update({'font.size': 18})
             plt.savefig(self.save_path + '/motion_correlation.png', dpi=300)
             if slope > 0:
@@ -472,7 +502,7 @@ class preprocess:
         date_obj = datetime.strptime(self.path.split('/')[-2][:], date_format)
         actualtime = [date_obj + timedelta(0, time) for time in self.data_seconds['TimeStamp']]
         info_columns['Time'] = actualtime
-        mouseID = self.path.split('/')[-3][:4] # if mouse ID annotation is changed to include more or less letters, the number 4 must be changed
+        mouseID = self.path.split('/')[-3]#[:4] # if mouse ID annotation is changed to include more or less letters, the number 4 must be changed
         print(f'Please ensure that {mouseID} is the correct mouse ID \n '
               f'If not, changes must be made to either add_crucial_info fucntion or file naming')
         info_columns['mouseID'] = [mouseID for i in range(len(info_columns))]
@@ -500,17 +530,17 @@ class preprocess:
             print('motion correction added')
             final_df = pd.concat([final_df, self.motion_corr], axis = 1)
             final_df = final_df.loc[:, ~final_df.columns.str.contains('^Unnamed')]
-            final_df.to_csv(self.save_path + '/motion_preprocessed.csv', index=False)
+            final_df.to_csv(self.save_path + '/motion_Fluorescence.csv', index=False)
         else:
-            final_df.to_csv(self.save_path + '/preprocessed.csv', index=False)
+            final_df.to_csv(self.save_path + '/Fluorescence.csv', index=False)
 
         if Events == True:
             final_df = pd.concat([final_df.reset_index(drop=True), self.events.reset_index(drop=True)], axis=1)
             final_df = final_df.loc[:, ~final_df.columns.str.contains('^Unnamed')]
             print('Events added')
             event_df = self.events
-            final_df.to_csv(self.save_path + '/preprocessed.csv', index=False)
-            print('preprocessed.csv file saved to ', self.save_path)
+            final_df.to_csv(self.save_path + '/Fluorescence.csv', index=False)
+            print('Fluorescence.csv file saved to ', self.save_path)
             event_df.to_csv(self.save_path + '/events.csv', index=False)
 
         mpl.pyplot.close()
