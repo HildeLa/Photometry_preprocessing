@@ -8,6 +8,7 @@ from scipy.optimize import curve_fit, minimize
 from datetime import datetime, timedelta
 import os
 import matplotlib as mpl
+import time
 
 class preprocess:
     def __init__(self, path, sensors):
@@ -198,92 +199,129 @@ class preprocess:
             save_path = f'{mainfolder}/{experiments}/{session}/{mousename_recordtime}'
 
     
-            
+        self.mousename = mousename
                         
         return(rawdata, data, data_seconds, signals, save_path)
         
  
     def extract_events(self): 
         """
-        Here, each event type is assigned a boolean data column that is False except at the times where the event occurred -> True
+        Assigns a boolean data column for each unique event type indicating 
+        whether the event occurred at each time point (True/False). 
+        Removes 'Event' and 'State' columns after processing.
+        Saves the updated data DataFrame to self.data.
+        
+        Returns:
+            DataFrame with 'Event' and 'State' columns (original values) before removal.
         """
+        # Copy the data for processing
         data = self.data.copy()
-        
-        try:
-            if 'Event' not in data.columns:
-                raise KeyError("The DataFrame does not have an 'Event' column.")
+    
+        # List to hold unique event names for reference (optional)
+        events = []
+    
+        # Check if the Event column exists and is not empty
+        if 'Event' not in data.columns or data['Event'].isna().all():
+            print("There are no recorded events.")
             
-            if len(data['Event'].unique()) == 1:
-                print("There are no recorded events, this function and add_event_bool() should not be called on.")
-                return pd.DataFrame()  # Return an empty DataFrame if no events are recorded.
-        except KeyError as e:
-            print(f"KeyError: {e}")
-            return pd.DataFrame()  # Return an empty DataFrame if 'Event' column is missing.
+        else:
+            # Initialize event columns to False
+            for event_name in data['Event'].dropna().unique():
+                data[f'{event_name}_event'] = False
+                events.append(event_name)
+            
+            # Iterate through unique event names in the Event column
+            for event_name in data['Event'].dropna().unique():
+                # Identify rows where the Event matches the event_name
+                matching_rows = data['Event'] == event_name
+                # Set the event-specific column to True for those rows
+                data.loc[matching_rows, f'{event_name}_event'] = True
     
-        # Proceed with the logic for extracting event information
-        events = data['Event'].dropna().unique()
-        event_dict = {}
-        prev_name = 0
-        startstops = pd.DataFrame()
+        # Extract 'Event' and 'State' columns to return before dropping them
+        event_state_df = data[['Event', 'State']]
+    
+        # Drop 'Event' and 'State' columns from the main data
+        data = data.drop(columns=['Event', 'State'], errors='ignore')
+    
+        # Save the updated data to self.data
+        self.data = data
+    
+        # Return the original 'Event' and 'State' columns
+        return event_state_df
+
+
+
+    def low_pass_filt(self, plot=False):
+        start_time = time.time()
         
-        for event in events:
-            name = event  # 'Input1', etc.
-            state = data['Event']
-            data.loc[:, f'{event}_event'] = (data['Event'] == event) & (data['State'] == 0)
-    
-        return data[[f'{event}_event' for event in events]]
-
-
-
-    def low_pass_filt(self):
-        filtered = pd.DataFrame()
         signals = self.signals
         sensors = self.sensors
-        fps = self.Info['Fps']/len(sensors)
+        filtered = pd.DataFrame(index=self.signals.index)  # Ensure filtered DataFrame has the same index as signals
+    
+        fps = self.Info['Fps'] / len(sensors)
         
-        #fig, axs = plt.subplots(len(signals),figsize = (15, 10), sharex=True)
-        color_count = 0
-        print(sensors)
         for signal in signals:
             sensor = sensors[signal]
-            print(f'filtering {signal} with {sensor}')
-            if sensor == 'G8m':
-                Wn = 25 #15#25 # three samples within the half decay time of sensor (120 ms -> 40 ms -> 25 Hz)
-                n = 2
-            elif sensor == 'g5-HT3':
-                Wn = 3#3 #tau off = -1.39
-                n = 2
+            print(f'Filtering {signal} with sensor {sensor}')
             
-
-            elif type(sensor) == int:
+            # Determine cutoff frequency and filter order
+            if sensor == 'G8m':
+                Wn = 25
+            elif sensor == 'g5-HT3':
+                Wn = 3
+            elif isinstance(sensor, int):
                 Wn = 100 / (sensor / 3)
-                n = 2
-                
             else:
                 Wn = 1000 / (int(input("Enter sensor half decay time: ")) / 3)
-                n = 2
-                
-            b, a = butter(n, Wn, btype='low',fs=fps)  # N =  (the order of the filter), Wn =  is the critical frequency
-            filtered[f'filtered_{signal}'] = filtfilt(b, a, signals[signal])
             
-            '''line1 = ax.plot(self.data_seconds, signals[signal], alpha = 0.3, c=self.colors[color_count], label=signal)
-            ax.title(f'filtered {signal} signal ')
-            ax2 = ax.twinx()
-            line2 = ax2.plot(self.data_seconds, filtered[f'filtered_{signal}'], alpha = 1, c=self.colors[color_count], label=f'filtered {signal}')
-            ax2.set(ylabel='filtered')
-            ax.set(ylabel='raw trace')
-            color_count += 1
-            lns = line1+line2
-            labs = [l.get_label() for l in lns]
-            ax.legend(lns, labs, loc=0)
-            ax.grid()'''
-
-        #axs[-1].set(xlabel='seconds')
-
-        #fig.suptitle(f'Low-pass filtered signal {mousename} ')
-        #plt.savefig(self.save_path + '/low-pass_filtered.png', dpi=300)
-        #plt.close()
+            try:
+                # Design the filter
+                b, a = butter(2, Wn, btype='low', fs=fps)
+                # Apply the filter
+                filtered[f'filtered_{signal}'] = filtfilt(b, a, signals[signal])
+                print(f"Filtering of {signal} completed. Time taken:", time.time() - start_time)
+            
+            except ValueError:
+                print(f'Wn is set to {Wn} for the sensor {sensor}, while the frame rate is set to {fps} fps')
+                print(f'Digital filter critical frequencies must be 0 < Wn < fs/2 (fs={fps} -> fs/2={fps/2})')
+                print(f'The signal {signal} is not filtered and will be returned as-is.')
+                # Copy the unfiltered signal to the filtered DataFrame
+                filtered[f'filtered_{signal}'] = signals[signal]
+        
         return filtered
+
+    
+        # Plot the signals
+        if plot:
+            num_signals = len(signals)
+            fig, axs = plt.subplots(num_signals, figsize=(12, 8), sharex=True, sharey=False)
+            fig.subplots_adjust(hspace=0.5)
+        
+            if num_signals == 1:
+                axs = [axs]  # Ensure axs is iterable for a single signal
+        
+            for i, signal in enumerate(signals):
+                ax = axs[i]
+        
+                # Plot raw signal
+                ax.plot(self.data_seconds, signals[signal], alpha=0.3, label=f'Raw {signal}')
+                # Plot filtered signal
+                ax.plot(self.data_seconds, filtered[f'filtered_{signal}'], alpha=1, label=f'Filtered {signal}')
+                ax.set_title(f'{signal} Filtered')
+                ax.legend(loc='upper right')
+                ax.grid()
+        
+            axs[-1].set_xlabel('Time (seconds)')
+            fig.suptitle('Low-pass Filtered Signals')
+        
+            # Save plot to file
+            plt.savefig(self.save_path + f'/low-pass_filtered_{self.mousename}.png', dpi=150)  # Lower DPI to save time
+            plt.close()
+        
+            print(f"Plotting completed. Total time taken: {time.time() - start_time:.2f} seconds.")
+        
+    
+
 
 
     def detrend(self):
@@ -332,12 +370,12 @@ class preprocess:
         color_count = 0
         for column, ax in zip(data_detrended.columns, axs):
             ax.plot(self.data_seconds, data_detrended[column], c=self.colors[color_count], label=column)
-            ax.set(ylabel='data_detrended')
+            ax.set(ylabel='data detrended')
             color_count += 1
             ax.legend()
         axs[-1].set(xlabel='seconds')
-        fig.suptitle(f'detrended_data {mousename}')
-        plt.savefig(self.save_path + '/Detrended_data.png', dpi=300)
+        fig.suptitle(f'detrended data {self.mousename}')
+        plt.savefig(self.save_path + f'/Detrended_data_{self.mousename}.png', dpi=300)
 
         # Plotting the filtered data with the exponential fit
         fig, axs = plt.subplots(len(traces.columns),figsize = (15, 10), sharex=True)
@@ -354,8 +392,8 @@ class preprocess:
             ax.legend(lns, labs, loc=0)
 
         axs[-1].set(xlabel = 'seconds')
-        fig.suptitle(f'exponential fit {mousename}')
-        plt.savefig(self.save_path + '/exp-fit.png', dpi=300)
+        fig.suptitle(f'exponential fit {self.mousename}')
+        plt.savefig(self.save_path + f'/exp-fit_{self.mousename}.png', dpi=300)
 
         return data_detrended, exp_fits
 
@@ -370,7 +408,7 @@ class preprocess:
             ax.plot(x, intercept + slope * x)
             ax.set_xlabel('410')
             ax.set_ylabel('470')
-            ax.set_title('410 nm - 470 nm correlation.')
+            ax.set_title(f'410 nm - 470 nm correlation {self.mousename}.')
             xlim = ax.get_xlim()[1]
             ylim = ax.get_ylim()[0]
             #ax.text(xlim-2, ylim+2,'Slope    : {:.3f}'.format(slope))
@@ -378,7 +416,7 @@ class preprocess:
             print('Slope    : {:.3f}'.format(slope))
             print('R-squared: {:.3f}'.format(r_value ** 2))
             plt.rcParams.update({'font.size': 18})
-            plt.savefig(self.save_path + '/motion_correlation.png', dpi=300)
+            plt.savefig(self.save_path + f'/motion_correlation_{self.mousename}.png', dpi=300)
             if slope > 0:
                 control_corr = intercept + slope * data['detrend_410']
                 signal_corrected = data['detrend_470'] - control_corr
@@ -426,8 +464,8 @@ class preprocess:
             axs.set(xlabel='seconds', ylabel='z-scored fluorescence')
             axs.legend()
 
-        fig.suptitle(f'zscored_data {mousename}')
-        plt.savefig(self.save_path+'/zscored_figure.png', dpi = 300)
+        fig.suptitle(f'zscored_data {self.mousename}')
+        plt.savefig(self.save_path+f'/zscored_figure_{self.mousename}.png', dpi = 300)
 
         return zscored_data
 
@@ -468,8 +506,8 @@ class preprocess:
             axs.set(xlabel='seconds', ylabel='Delta F fluorescence')
 
 
-        fig.suptitle(f'Delta F / F to exponential fit {mousename}')
-        plt.savefig(self.save_path+'/deltaf-F_figure.png', dpi = 300)
+        fig.suptitle(f'Delta F / F to exponential fit {self.mousename}')
+        plt.savefig(self.save_path+f'/deltaf-F_figure_{self.mousename}.png', dpi = 300)
         return dF_F
 
     def write_info_csv(self):
@@ -515,33 +553,37 @@ class preprocess:
 
 
 
-    def write_preprocessed_csv(self, motion_correct = False, Events = False):
-        ''''
-        Writes the processed traces into a csv file containing
+    def write_preprocessed_csv(self, motion_correct=False):
+        """
+        Writes the processed traces into a CSV file containing:
         - Corrected and z-scored traces
-        - column for each event, start and stop, as numpy nans and time points
-        - column for start and stop of event as boolean term (True between start and stop)
-        :param motion_correct: default False, set to True if a motion corrected sigal should be added
-        '''
+        - Optionally motion-corrected signal
+        - If self.events exists, it also writes the events DataFrame to a separate file
+    
+        :param motion_correct: Default False, set to True if a motion-corrected signal should be added.
+        """
+        # Prepare the base filename
         filename = self.path.split('/')[-2][:]
-        final_df = pd.concat([self.data_seconds, self.deltaF_F, self.zscored, self.crucial_info], axis = 1)
+    
+        # Combine the base data
+        final_df = pd.concat([self.data_seconds, self.deltaF_F, self.zscored, self.crucial_info], axis=1)
         final_df = final_df.loc[:, ~final_df.columns.str.contains('^Unnamed')]
-        if motion_correct == True:
-            print('motion correction added')
-            final_df = pd.concat([final_df, self.motion_corr], axis = 1)
+    
+        # Handle motion correction
+        if motion_correct:
+            print('Motion correction added')
+            final_df = pd.concat([final_df, self.motion_corr], axis=1)
             final_df = final_df.loc[:, ~final_df.columns.str.contains('^Unnamed')]
-            final_df.to_csv(self.save_path + '/motion_Fluorescence.csv', index=False)
-        else:
-            final_df.to_csv(self.save_path + '/Fluorescence.csv', index=False)
-
-        if Events == True:
-            final_df = pd.concat([final_df.reset_index(drop=True), self.events.reset_index(drop=True)], axis=1)
-            final_df = final_df.loc[:, ~final_df.columns.str.contains('^Unnamed')]
-            print('Events added')
-            event_df = self.events
-            final_df.to_csv(self.save_path + '/Fluorescence.csv', index=False)
-            print('Fluorescence.csv file saved to ', self.save_path)
-            event_df.to_csv(self.save_path + '/events.csv', index=False)
+    
+        # Save the main fluorescence file
+        final_df.to_csv(self.save_path + '/Processed_fluorescence.csv', index=False)
+        print('Processed_fluorescence.csv file saved to ', self.save_path)
+    
+        # Handle events if self.events exists
+        if hasattr(self, 'events') and isinstance(self.events, pd.DataFrame):
+            print('Events detected and saved.')
+            # Save the events DataFrame separately
+            self.events.to_csv(self.save_path + '/Events.csv', index=False)
 
         mpl.pyplot.close()
 
