@@ -139,7 +139,34 @@ class preprocess:
         if '&' in session:
             session = session.replace('&', '-')
 
+        #Adding events as booleans
+        print('Adding event bools')
+        
+        # Create a new column for each unique event in the 'Name' column
+        unique_events = events['Event'].unique()
+        
+        for event in unique_events:
+            # Initialize the event-specific column with False, using loc to avoid SettingWithCopyWarning
+            data.loc[:, f"{event}_event"] = False
+            
+            # Filter the events for this specific event name
+            event_rows = events[events['Event'] == event]
+            
+            #GEt the transitions from 0 to 1
+            transitions = event_rows[(event_rows['State'].shift(1) == 0) & (event_rows['State'] == 1)]
 
+            #Get the timestamps for both 0 and 1 states
+            start_timestamps = event_rows[event_rows['State'] == 0].loc[event_rows['State'].shift(-1) == 1, 'TimeStamp'].values
+            end_timestamps = event_rows[event_rows['State'] == 1].loc[event_rows['State'].shift(1) == 0, 'TimeStamp'].values
+
+            # For each time range, modify the corresponding values in another DataFrame (e.g., 'other_df')
+            for start, end in zip(start_timestamps, end_timestamps):
+                mask = (data['TimeStamp'] >= start) & (data['TimeStamp'] <= end)
+                data.loc[mask, f"{event}_event"] = True 
+            
+        
+
+        #Use path_save to ensure the data is saved where the Onix data is located
         if path_save is not None:
             found_mouse_dir = False  # Flag to track if mousename was found
             for dirpath, subdirs, files in os.walk(path_save):
@@ -147,13 +174,17 @@ class preprocess:
                 if mousename in dirpath.split('/')[-1]:
                     found_mouse_dir = True
                     photometry_dir = os.path.join(dirpath, 'photometry')
-                    
+                    #mousedir = os.path.join(photometry_dir, mousename)
                     # Create the 'photometry' directory if it doesn't exist
                     if not os.path.exists(photometry_dir):
                         os.makedirs(photometry_dir)
                         print(f"Directory created: {photometry_dir}")
+                    #if not os.path.exists(mousedir):
+                        #os.makedirs(mousedir)
+                        #print(f"Directory created: {mousedir}")
+
                     
-                    save_path = photometry_dir
+                    save_path = photometry # Can change to mousedir and remove the mousedir part above
                     print("Save path set to:", save_path)
                     break  # Exit loop once the save path is set
         
@@ -174,7 +205,9 @@ class preprocess:
                     print(f"Directory created: {save_path}")
                 else:
                     print(f"Directory already exists: {save_path}")
-        
+                    
+        #If there is no path for saving, a path will be created based on the directory structure of the input path
+        #The data will then be saved to a folder named Processed in the directory from whic the script is run
         if path_save is None:
             mainfolder = 'Processed'
             # Check if the directory already exists
@@ -198,7 +231,7 @@ class preprocess:
         
             save_path = f'{mainfolder}/{experiments}/{session}/{mousename_recordtime}'
 
-    
+        #Adding mousename in self for plotting and naming
         self.mousename = mousename
                         
         return(rawdata, data, data_seconds, signals, save_path)
@@ -223,7 +256,14 @@ class preprocess:
         # Check if the Event column exists and is not empty
         if 'Event' not in data.columns or data['Event'].isna().all():
             print("There are no recorded events.")
+
+        else:
+            events = pd.DataFrame()
+            for col in data.columns:
+                if 'event' in col:
+                    events[col]= data[col]
             
+        '''
         else:
             # Initialize event columns to False
             for event_name in data['Event'].dropna().unique():
@@ -232,22 +272,26 @@ class preprocess:
             
             # Iterate through unique event names in the Event column
             for event_name in data['Event'].dropna().unique():
+                events.append
                 # Identify rows where the Event matches the event_name
                 matching_rows = data['Event'] == event_name
                 # Set the event-specific column to True for those rows
                 data.loc[matching_rows, f'{event_name}_event'] = True
+                
     
         # Extract 'Event' and 'State' columns to return before dropping them
         event_state_df = data[['Event', 'State']]
     
         # Drop 'Event' and 'State' columns from the main data
         data = data.drop(columns=['Event', 'State'], errors='ignore')
-    
+        
         # Save the updated data to self.data
         self.data = data
-    
+        '''
         # Return the original 'Event' and 'State' columns
-        return event_state_df
+
+        
+        return events#data[[event for event in events]]
 
 
 
@@ -259,6 +303,7 @@ class preprocess:
         filtered = pd.DataFrame(index=self.signals.index)  # Ensure filtered DataFrame has the same index as signals
     
         fps = self.Info['Fps'] / len(sensors)
+        print('fps divided by three:', fps)
         
         for signal in signals:
             sensor = sensors[signal]
@@ -553,7 +598,7 @@ class preprocess:
 
 
 
-    def write_preprocessed_csv(self, motion_correct=False):
+    def write_preprocessed_csv(self, motion_correct=False, Onix_align = True):
         """
         Writes the processed traces into a CSV file containing:
         - Corrected and z-scored traces
@@ -580,10 +625,22 @@ class preprocess:
         print('Processed_fluorescence.csv file saved to ', self.save_path)
     
         # Handle events if self.events exists
-        if hasattr(self, 'events') and isinstance(self.events, pd.DataFrame):
-            print('Events detected and saved.')
+        if hasattr(self, 'events') and isinstance(self.events, pd.DataFrame) and (Onix_align ==False):
             # Save the events DataFrame separately
             self.events.to_csv(self.save_path + '/Events.csv', index=False)
+            print('Events detected and saved.')
+            
+        if Onix_align ==True:
+            print('Saving Input1_event bool as Events.csv to Events.csv to be used for ONIX alingment')
+
+            event_path = self.path + 'Events.csv'  # events with precise timestamps
+            events = pd.read_csv(event_path)
+            
+            events['Event'] = events['State'] == 1  # Create the Event column based on State
+            events = events.drop(columns=['State', 'Name'])  # Drop State and Name columns
+            #events = events.set_index('TimeStamp')
+            
+            events.to_csv(self.save_path + '/Events.csv', index = False)
 
         mpl.pyplot.close()
 
