@@ -1,5 +1,12 @@
 # Photometry_preprocessing
  For preprocessing photometry signal
+ ### . preprocess_functions.py 
+  All funcitons needed to perform preprocessing
+ ### . preprocess_in_notebook.ipynb 
+  Example for running preprocessing from a jupyter notebook, where recordings can be viewed step by step and one by one, or in bulk
+ ### .run_preprocessing.py
+  Example for running preprocessing from terminal. Need to edit to provide root path or specific path to access one or more recrodings
+  
 
 ## preprocess_functions.py
   Class of funcitons 
