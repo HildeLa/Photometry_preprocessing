@@ -131,7 +131,7 @@ class preprocess:
             signals['410'] = data['410']
 
         recording_time = self.path.split('/')[-2][:]  # use same file name as folder
-        mousename = self.path.split('/')[-3]#[:4]
+        mousename = self.path.split('/')[-3]#[:6]
         mousename_recordtime = f'{mousename}_{recording_time}'
         print(f'\n\n \033[1m Preprocessing data for {mousename} at {recording_time} ...\033[0m \n')
         experiments = self.path.split('/')[-4][:]  #
@@ -144,7 +144,7 @@ class preprocess:
         
         # Create a new column for each unique event in the 'Name' column
         unique_events = events['Event'].unique()
-        
+        data = data.copy()
         for event in unique_events:
             # Initialize the event-specific column with False, using loc to avoid SettingWithCopyWarning
             data.loc[:, f"{event}_event"] = False
@@ -168,44 +168,52 @@ class preprocess:
 
         #Use path_save to ensure the data is saved where the Onix data is located
         if path_save is not None:
-            found_mouse_dir = False  # Flag to track if mousename was found
+
+            save_path = None  # Initialize the save_path variable
+            found_mouse_dir = False  # Flag to check if mousename was found in any directory
+            
+            # Loop through the directories under the given path
             for dirpath, subdirs, files in os.walk(path_save):
-                # Check if `mousename` is in the last part of the directory path
-                if mousename in dirpath.split('/')[-1]:
+                current_dirname = os.path.basename(dirpath)
+                
+                # Check if mousename is part of the directory name
+                if (mousename in current_dirname) and ('photometry' not in dirpath):
                     found_mouse_dir = True
-                    photometry_dir = os.path.join(dirpath, 'photometry')
-                    #mousedir = os.path.join(photometry_dir, mousename)
-                    # Create the 'photometry' directory if it doesn't exist
+                    photometry_dir = os.path.join(dirpath, 'photometry_processed')  # Define 'photometry_processed' subdirectory
+                    
+                    # Create 'photometry_processed' directory if it doesn't exist
                     if not os.path.exists(photometry_dir):
                         os.makedirs(photometry_dir)
-                        print(f"Directory created: {photometry_dir}")
-                    #if not os.path.exists(mousedir):
-                        #os.makedirs(mousedir)
-                        #print(f"Directory created: {mousedir}")
-
+                        print(f"Created 'photometry_processed' directory at: {photometry_dir}")
+                    else:
+                        print(f"'photometry_processed' directory already exists at: {photometry_dir}")
                     
-                    save_path = photometry # Can change to mousedir and remove the mousedir part above
-                    print("Save path set to:", save_path)
-                    break  # Exit loop once the save path is set
-        
-            # If `mousename` is not found, handle fallback save path creation
+                    save_path = photometry_dir  # Save the final path
+                    break  # Exit the loop since we found the directory
+            
+            # If no directory containing mousename was found
             if not found_mouse_dir:
-                print("Mousename not found in path_save. Creating a new directory for the save path.")
-                
-                if not os.path.exists(path_save):
-                    os.makedirs(path_save)  # Ensure `path_save` exists
-                    print(f"Root path created: {path_save}")
-                
-                # Create a directory in the root of `path_save`
-                new_dir = f"{mousename}_{recording_time}_photometry"
-                save_path = os.path.join(path_save, new_dir)
-                
-                if not os.path.exists(save_path):
-                    os.makedirs(save_path)
-                    print(f"Directory created: {save_path}")
+                # Create 'photometry_processed' in the root path if it doesn't already exist
+                root_photometry_dir = os.path.join(path_save, 'photometry_processed')
+                if not os.path.exists(root_photometry_dir):
+                    os.makedirs(root_photometry_dir)
+                    print(f"Created 'photometry_processed' directory at: {root_photometry_dir}")
                 else:
-                    print(f"Directory already exists: {save_path}")
-                    
+                    print(f"'photometry_processed' directory already exists at: {root_photometry_dir}")
+                
+                # Create a subdirectory named after the mousename
+                mousename_dir = os.path.join(root_photometry_dir, mousename)
+                if not os.path.exists(mousename_dir):
+                    os.makedirs(mousename_dir)
+                    print(f"Created directory for mouse '{mousename}' at: {mousename_dir}")
+                else:
+                    print(f"Directory for mouse '{mousename}' already exists at: {mousename_dir}")
+                
+                save_path = mousename_dir  # Save the final path
+            
+            # Print the save_path
+            print(f"Final save path: {save_path}")
+
         #If there is no path for saving, a path will be created based on the directory structure of the input path
         #The data will then be saved to a folder named Processed in the directory from whic the script is run
         if path_save is None:
@@ -263,32 +271,6 @@ class preprocess:
                 if 'event' in col:
                     events[col]= data[col]
             
-        '''
-        else:
-            # Initialize event columns to False
-            for event_name in data['Event'].dropna().unique():
-                data[f'{event_name}_event'] = False
-                events.append(event_name)
-            
-            # Iterate through unique event names in the Event column
-            for event_name in data['Event'].dropna().unique():
-                events.append
-                # Identify rows where the Event matches the event_name
-                matching_rows = data['Event'] == event_name
-                # Set the event-specific column to True for those rows
-                data.loc[matching_rows, f'{event_name}_event'] = True
-                
-    
-        # Extract 'Event' and 'State' columns to return before dropping them
-        event_state_df = data[['Event', 'State']]
-    
-        # Drop 'Event' and 'State' columns from the main data
-        data = data.drop(columns=['Event', 'State'], errors='ignore')
-        
-        # Save the updated data to self.data
-        self.data = data
-        '''
-        # Return the original 'Event' and 'State' columns
 
         
         return events#data[[event for event in events]]
@@ -296,14 +278,21 @@ class preprocess:
 
 
     def low_pass_filt(self, plot=False):
+    
         start_time = time.time()
         
         signals = self.signals
         sensors = self.sensors
         filtered = pd.DataFrame(index=self.signals.index)  # Ensure filtered DataFrame has the same index as signals
-    
+        
+        # The software records the fps for all three lights combined
+        # therefore, to get each light's actual rate, one must divide by the number of lights used
         fps = self.Info['Fps'] / len(sensors)
-        print('fps divided by three:', fps)
+        print('recording frame rate per wavelength: ', fps)
+        
+        # Add 'filtering_Wn' key if it doesn't exist
+        if 'filtering_Wn' not in self.Info:
+            self.Info['filtering_Wn'] = {}
         
         for signal in signals:
             sensor = sensors[signal]
@@ -319,53 +308,51 @@ class preprocess:
             else:
                 Wn = 1000 / (int(input("Enter sensor half decay time: ")) / 3)
             
+            # Store the Wn value for this signal in 'filtering_Wn'
+            self.Info['filtering_Wn'][signal] = [Wn]
+            
             try:
                 # Design the filter
                 b, a = butter(2, Wn, btype='low', fs=fps)
                 # Apply the filter
                 filtered[f'filtered_{signal}'] = filtfilt(b, a, signals[signal])
                 print(f"Filtering of {signal} completed. Time taken:", time.time() - start_time)
+                self.Info['filtering_Wn'][signal].append(True)
             
             except ValueError:
                 print(f'Wn is set to {Wn} for the sensor {sensor}, while the frame rate is set to {fps} fps')
                 print(f'Digital filter critical frequencies must be 0 < Wn < fs/2 (fs={fps} -> fs/2={fps/2})')
                 print(f'The signal {signal} is not filtered and will be returned as-is.')
+                self.Info['filtering_Wn'][signal].append(False)
                 # Copy the unfiltered signal to the filtered DataFrame
                 filtered[f'filtered_{signal}'] = signals[signal]
         
-        return filtered
 
-    
-        # Plot the signals
         if plot:
-            num_signals = len(signals)
-            fig, axs = plt.subplots(num_signals, figsize=(12, 8), sharex=True, sharey=False)
-            fig.subplots_adjust(hspace=0.5)
-        
+            num_signals = len(signals.columns)
+            fig, axes = plt.subplots(num_signals, 1, figsize=(12, 8), sharex=True)
+            
+            # If there's only one signal, `axes` won't be a list
             if num_signals == 1:
-                axs = [axs]  # Ensure axs is iterable for a single signal
-        
-            for i, signal in enumerate(signals):
-                ax = axs[i]
-        
-                # Plot raw signal
-                ax.plot(self.data_seconds, signals[signal], alpha=0.3, label=f'Raw {signal}')
-                # Plot filtered signal
-                ax.plot(self.data_seconds, filtered[f'filtered_{signal}'], alpha=1, label=f'Filtered {signal}')
-                ax.set_title(f'{signal} Filtered')
-                ax.legend(loc='upper right')
-                ax.grid()
-        
-            axs[-1].set_xlabel('Time (seconds)')
+                axes = [axes]
+            
+            for ax, signal, color in zip(axes, signals, self.colors):
+                ax.plot(self.data_seconds, signals[signal], label='Original', color=color, alpha=0.5)
+                ax.plot(self.data_seconds, filtered[f'filtered_{signal}'], label='Filtered', color=color, alpha=1)
+                ax.set_title(f'Signal: {signal}')
+                ax.set_ylabel(f'fluorescence')
+                ax.legend()
+            
+            axes[-1].set_xlabel('Seconds')
+            plt.tight_layout()
+            plt.show()
             fig.suptitle('Low-pass Filtered Signals')
         
             # Save plot to file
             plt.savefig(self.save_path + f'/low-pass_filtered_{self.mousename}.png', dpi=150)  # Lower DPI to save time
             plt.close()
-        
-            print(f"Plotting completed. Total time taken: {time.time() - start_time:.2f} seconds.")
-        
-    
+            
+        return filtered    
 
 
 
@@ -377,6 +364,9 @@ class preprocess:
             traces = self.signals
         data_detrended = pd.DataFrame()
         exp_fits = pd.DataFrame()
+        if 'detrend_params' not in self.Info:
+            self.Info['detrend_params'] = {}
+            
         def double_exponential(time, amp_const, amp_fast, amp_slow, tau_slow, tau_multiplier):
             '''
             Based on: https://github.com/ThomasAkam/photometry_preprocessing
@@ -406,6 +396,7 @@ class preprocess:
                 pass
             signal_expfit = double_exponential(self.data_seconds['TimeStamp'], *signal_parms)
             print(f'Parameters used for detrending {trace}: ', signal_parms)
+            self.Info['detrend_params'][trace]=signal_parms
             signal_detrended = traces[trace].reset_index(drop=True) - signal_expfit.reset_index(drop=True)
             data_detrended[f'detrend{trace[-4:]}'] = signal_detrended
             exp_fits[f'expfit{trace[-4:]}'] = signal_expfit
@@ -443,6 +434,12 @@ class preprocess:
         return data_detrended, exp_fits
 
     def movement_correct(self):
+        '''
+        Uses detrended data from 410 and 470 signal to fit a linear regression that is then subtracted from the 470 data 
+        only if the correlation is postive.
+        Can change to always performing motion correction or changing to 560 if a red sensor is used for motion correction.
+        Returns empty list if data could not be motion corrected.
+        '''
         data = self.data_detrended
         try:
             slope, intercept, r_value, p_value, std_err = linregress(x=data['detrend_410'], y=data['detrend_470'])
@@ -469,16 +466,16 @@ class preprocess:
             else:
                 print('signal could not be motion corrected')
                 print(intercept, slope)
-                return data['detrend_470']
+                return []
         except KeyError:
             print('signal could not be motion corrected, the original data is returned')
             print(intercept, slope)
-            return data['detrend_470']
+            return []
 
     def z_score(self, motion = False):
         '''
         Z-scoring of signal traces
-        Gets relative values of signal, equivalent to delt F/ F
+        Gets relative values of signal
         Calculates median signal value and standard deviation
         Gives the signal strenght in terms of standard deviation units
         Does not take into account signal reduction due to bleaching
@@ -536,6 +533,13 @@ class preprocess:
             F = self.exp_fits['expfit_470']
             signal_dF_F = 100 * deltaF / F
             dF_F['470_dfF'] = signal_dF_F
+            main_data = self.data_detrended
+            for signal, fit in zip(main_data, self.exp_fits):
+                if '470' not in signal:
+                    F = self.exp_fits[fit]
+                    deltaF = main_data[signal]
+                    signal_dF_F = 100 * deltaF / F
+                    dF_F[f'{signal[-3:]}_dfF'] = signal_dF_F
 
 
         fig, axs = plt.subplots(len(dF_F.columns),figsize = (15, 10), sharex=True)
@@ -582,7 +586,9 @@ class preprocess:
         # will need to backtrack mouse ID and recording data etc. though file names
         info_columns = pd.DataFrame()
         date_format = '%Y_%m_%d-%H_%M_%S'
-        date_obj = datetime.strptime(self.path.split('/')[-2][:], date_format)
+ 
+        date_obj = datetime.strptime(self.path.split('/')[-2][:], date_format) #This line requires that the saving structure of the photometry software is kept
+
         actualtime = [date_obj + timedelta(0, time) for time in self.data_seconds['TimeStamp']]
         info_columns['Time'] = actualtime
         mouseID = self.path.split('/')[-3]#[:4] # if mouse ID annotation is changed to include more or less letters, the number 4 must be changed
@@ -594,11 +600,14 @@ class preprocess:
         info_columns['Area'] = [Area for i in range(len(info_columns))]
         Sex = input('Add the sex of the mouse: ')
         info_columns['Sex'] = [Sex for i in range(len(info_columns))]
+        self.Info['mouse_info'] = {'sensors': self.sensors, 'target_area': Area,'sex': Sex}
+        
+        print(f'info added for {self.mousename }\n')
         return info_columns
 
 
 
-    def write_preprocessed_csv(self, motion_correct=False, Onix_align = True):
+    def write_preprocessed_csv(self,Onix_align = True):
         """
         Writes the processed traces into a CSV file containing:
         - Corrected and z-scored traces
@@ -610,20 +619,19 @@ class preprocess:
         # Prepare the base filename
         filename = self.path.split('/')[-2][:]
     
-        # Combine the base data
-        final_df = pd.concat([self.data_seconds, self.deltaF_F, self.zscored, self.crucial_info], axis=1)
-        final_df = final_df.loc[:, ~final_df.columns.str.contains('^Unnamed')]
-    
-        # Handle motion correction
-        if motion_correct:
-            print('Motion correction added')
-            final_df = pd.concat([final_df, self.motion_corr], axis=1)
-            final_df = final_df.loc[:, ~final_df.columns.str.contains('^Unnamed')]
+        # Combine the base data #add or remove signals to save.
+        final_df = pd.concat([self.data_seconds.reset_index(drop=True),
+                              self.filtered.reset_index(drop=True),
+                              self.deltaF_F.reset_index(drop=True),
+                              self.zscored.reset_index(drop=True),
+                              self.crucial_info.reset_index(drop=True)], axis=1)
+        
+        final_df = final_df.loc[:, ~final_df.columns.str.contains('^Unnamed')] #removed unwanted extra column
     
         # Save the main fluorescence file
         final_df.to_csv(self.save_path + '/Processed_fluorescence.csv', index=False)
         print('Processed_fluorescence.csv file saved to ', self.save_path)
-    
+        
         # Handle events if self.events exists
         if hasattr(self, 'events') and isinstance(self.events, pd.DataFrame) and (Onix_align ==False):
             # Save the events DataFrame separately
@@ -631,13 +639,13 @@ class preprocess:
             print('Events detected and saved.')
             
         if Onix_align ==True:
-            print('Saving Input1_event bool as Events.csv to Events.csv to be used for ONIX alingment')
+            print('Saving original Events.csv to Events.csv to be used for ONIX alingment')
 
             event_path = self.path + 'Events.csv'  # events with precise timestamps
             events = pd.read_csv(event_path)
             
-            events['Event'] = events['State'] == 1  # Create the Event column based on State
-            events = events.drop(columns=['State', 'Name'])  # Drop State and Name columns
+            #events['Event'] = events['State'] == 1  # Create the Event column based on State
+            #events = events.drop(columns=['State', 'Name'])  # Drop State and Name columns
             #events = events.set_index('TimeStamp')
             
             events.to_csv(self.save_path + '/Events.csv', index = False)
