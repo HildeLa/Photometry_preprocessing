@@ -356,7 +356,7 @@ class preprocess:
 
 
 
-    def detrend(self):
+    def detrend(self, plot = False):
         try:
             traces = self.filtered
         except:
@@ -402,38 +402,39 @@ class preprocess:
             exp_fits[f'expfit{trace[-4:]}'] = signal_expfit
 
         #Plotting the detrended data
-        fig, axs = plt.subplots(len(data_detrended.columns), figsize = (15, 10), sharex=True)
-        color_count = 0
-        for column, ax in zip(data_detrended.columns, axs):
-            ax.plot(self.data_seconds, data_detrended[column], c=self.colors[color_count], label=column)
-            ax.set(ylabel='data detrended')
-            color_count += 1
-            ax.legend()
-        axs[-1].set(xlabel='seconds')
-        fig.suptitle(f'detrended data {self.mousename}')
-        plt.savefig(self.save_path + f'/Detrended_data_{self.mousename}.png', dpi=300)
-
-        # Plotting the filtered data with the exponential fit
-        fig, axs = plt.subplots(len(traces.columns),figsize = (15, 10), sharex=True)
-        color_count = 0
-        for trace, exp, ax in zip(traces.columns, exp_fits.columns, axs):
-            line1 = ax.plot(self.data_seconds, traces[trace], c=self.colors[color_count], label=trace)
-            color_count += 1
-            ax2 = ax.twinx()
-            line2 = ax2.plot(self.data_seconds, exp_fits[exp], c=self.colors[color_count], alpha =0.5, label=exp)
-            ax.set(ylabel='fluoresence')
-            ax2.set(ylabel='exponential fit')
-            lns = line1 + line2
-            labs = [l.get_label() for l in lns]
-            ax.legend(lns, labs, loc=0)
-
-        axs[-1].set(xlabel = 'seconds')
-        fig.suptitle(f'exponential fit {self.mousename}')
-        plt.savefig(self.save_path + f'/exp-fit_{self.mousename}.png', dpi=300)
+        if plot:
+            fig, axs = plt.subplots(len(data_detrended.columns), figsize = (15, 10), sharex=True)
+            color_count = 0
+            for column, ax in zip(data_detrended.columns, axs):
+                ax.plot(self.data_seconds, data_detrended[column], c=self.colors[color_count], label=column)
+                ax.set(ylabel='data detrended')
+                color_count += 1
+                ax.legend()
+            axs[-1].set(xlabel='seconds')
+            fig.suptitle(f'detrended data {self.mousename}')
+            plt.savefig(self.save_path + f'/Detrended_data_{self.mousename}.png', dpi=300)
+    
+            # Plotting the filtered data with the exponential fit
+            fig, axs = plt.subplots(len(traces.columns),figsize = (15, 10), sharex=True)
+            color_count = 0
+            for trace, exp, ax in zip(traces.columns, exp_fits.columns, axs):
+                line1 = ax.plot(self.data_seconds, traces[trace], c=self.colors[color_count], label=trace)
+                color_count += 1
+                ax2 = ax.twinx()
+                line2 = ax2.plot(self.data_seconds, exp_fits[exp], c=self.colors[color_count], alpha =0.5, label=exp)
+                ax.set(ylabel='fluoresence')
+                ax2.set(ylabel='exponential fit')
+                lns = line1 + line2
+                labs = [l.get_label() for l in lns]
+                ax.legend(lns, labs, loc=0)
+    
+            axs[-1].set(xlabel = 'seconds')
+            fig.suptitle(f'exponential fit {self.mousename}')
+            plt.savefig(self.save_path + f'/exp-fit_{self.mousename}.png', dpi=300)
 
         return data_detrended, exp_fits
 
-    def movement_correct(self):
+    def movement_correct(self, plot = False):
         '''
         Uses detrended data from 410 and 470 signal to fit a linear regression that is then subtracted from the 470 data 
         only if the correlation is postive.
@@ -444,21 +445,22 @@ class preprocess:
         try:
             slope, intercept, r_value, p_value, std_err = linregress(x=data['detrend_410'], y=data['detrend_470'])
             print(f'The slope of the linear regression between the main signal and the control is: ', slope)
-            fig, ax = plt.subplots(figsize=(15, 10))
-            plt.scatter(data['detrend_410'][::5], data['detrend_470'][::5], alpha=0.1, marker='.')
-            x = np.array(ax.get_xlim())
-            ax.plot(x, intercept + slope * x)
-            ax.set_xlabel('410')
-            ax.set_ylabel('470')
-            ax.set_title(f'410 nm - 470 nm correlation {self.mousename}.')
-            xlim = ax.get_xlim()[1]
-            ylim = ax.get_ylim()[0]
-            #ax.text(xlim-2, ylim+2,'Slope    : {:.3f}'.format(slope))
-            #ax.text(xlim-2, ylim+1,'R-squared: {:.3f}'.format(r_value ** 2))
+            if plot:
+                fig, ax = plt.subplots(figsize=(15, 10))
+                plt.scatter(data['detrend_410'][::5], data['detrend_470'][::5], alpha=0.1, marker='.')
+                x = np.array(ax.get_xlim())
+                ax.plot(x, intercept + slope * x)
+                ax.set_xlabel('410')
+                ax.set_ylabel('470')
+                ax.set_title(f'410 nm - 470 nm correlation {self.mousename}.')
+                xlim = ax.get_xlim()[1]
+                ylim = ax.get_ylim()[0]
+                plt.rcParams.update({'font.size': 18})
+                plt.savefig(self.save_path + f'/motion_correlation_{self.mousename}.png', dpi=300)
+                
             print('Slope    : {:.3f}'.format(slope))
             print('R-squared: {:.3f}'.format(r_value ** 2))
-            plt.rcParams.update({'font.size': 18})
-            plt.savefig(self.save_path + f'/motion_correlation_{self.mousename}.png', dpi=300)
+            
             if slope > 0:
                 control_corr = intercept + slope * data['detrend_410']
                 signal_corrected = data['detrend_470'] - control_corr
@@ -472,7 +474,7 @@ class preprocess:
             print(intercept, slope)
             return []
 
-    def z_score(self, motion = False):
+    def z_score(self, motion = False, plot = False):
         '''
         Z-scoring of signal traces
         Gets relative values of signal
@@ -492,26 +494,27 @@ class preprocess:
                     zscored_data[f'z_{signal[-3:]}'] = (signal_corrected - np.median(signal_corrected)) / np.std(signal_corrected)
 
         zscored_data = zscored_data.reset_index(drop = True)
-
-        fig, axs = plt.subplots(len(zscored_data.columns),figsize = (15, 10), sharex=True)
-        color_count = 0
-        if len(zscored_data.columns) > 1:
-            for column, ax in zip(zscored_data.columns, axs):
-                ax.plot(self.data_seconds, zscored_data[column], c = self.colors[color_count], label = column)
-                ax.set(xlabel='seconds', ylabel='z-scored fluorescence')
-                ax.legend()
-                color_count += 1
-        else:
-            axs.plot(self.data_seconds, zscored_data, c=self.colors[2])
-            axs.set(xlabel='seconds', ylabel='z-scored fluorescence')
-            axs.legend()
-
-        fig.suptitle(f'zscored_data {self.mousename}')
-        plt.savefig(self.save_path+f'/zscored_figure_{self.mousename}.png', dpi = 300)
+        
+        if plot:
+            fig, axs = plt.subplots(len(zscored_data.columns),figsize = (15, 10), sharex=True)
+            color_count = 0
+            if len(zscored_data.columns) > 1:
+                for column, ax in zip(zscored_data.columns, axs):
+                    ax.plot(self.data_seconds, zscored_data[column], c = self.colors[color_count], label = column)
+                    ax.set(xlabel='seconds', ylabel='z-scored fluorescence')
+                    ax.legend()
+                    color_count += 1
+            else:
+                axs.plot(self.data_seconds, zscored_data, c=self.colors[2])
+                axs.set(xlabel='seconds', ylabel='z-scored fluorescence')
+                axs.legend()
+    
+            fig.suptitle(f'zscored_data {self.mousename}')
+            plt.savefig(self.save_path+f'/zscored_figure_{self.mousename}.png', dpi = 300)
 
         return zscored_data
 
-    def deltaF_F(self, motion = False):
+    def get_deltaF_F(self, motion = False, plot = False):
         '''
         Input:
         - the detrended signal as delta F
@@ -541,22 +544,21 @@ class preprocess:
                     signal_dF_F = 100 * deltaF / F
                     dF_F[f'{signal[-3:]}_dfF'] = signal_dF_F
 
-
-        fig, axs = plt.subplots(len(dF_F.columns),figsize = (15, 10), sharex=True)
-        color_count = 0
-        if len(dF_F.columns) >1:
-            for column, ax in zip(dF_F.columns, axs):
-                ax.plot(self.data_seconds, dF_F[column], c = self.colors[color_count], label = column)
-                ax.set(xlabel='seconds', ylabel='Delta F fluorescence')
-                ax.legend()
-                color_count += 1
-        else:
-            axs.plot(self.data_seconds, dF_F, c=self.colors[2])
-            axs.set(xlabel='seconds', ylabel='Delta F fluorescence')
-
-
-        fig.suptitle(f'Delta F / F to exponential fit {self.mousename}')
-        plt.savefig(self.save_path+f'/deltaf-F_figure_{self.mousename}.png', dpi = 300)
+        if plot:
+            fig, axs = plt.subplots(len(dF_F.columns),figsize = (15, 10), sharex=True)
+            color_count = 0
+            if len(dF_F.columns) >1:
+                for column, ax in zip(dF_F.columns, axs):
+                    ax.plot(self.data_seconds, dF_F[column], c = self.colors[color_count], label = column)
+                    ax.set(xlabel='seconds', ylabel='Delta F fluorescence')
+                    ax.legend()
+                    color_count += 1
+            else:
+                axs.plot(self.data_seconds, dF_F, c=self.colors[2])
+                axs.set(xlabel='seconds', ylabel='Delta F fluorescence')
+            fig.suptitle(f'Delta F / F to exponential fit {self.mousename}')
+            plt.savefig(self.save_path+f'/deltaf-F_figure_{self.mousename}.png', dpi = 300)
+            
         return dF_F
 
     def write_info_csv(self):
