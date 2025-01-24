@@ -11,12 +11,12 @@ import matplotlib as mpl
 import time
 
 class preprocess:
-    def __init__(self, path, sensors):
+    def __init__(self, path, Wns):
         if path[-1]== '/':
             self.path = path
         else:
             self.path = path+'/'
-        self.sensors = sensors
+        self.Wns = Wns
         #self.colors = mpl.colormaps['tab10'].colors
         self.colors = ['mediumseagreen', 'indianred', 'mediumpurple', 'steelblue']
 
@@ -282,12 +282,12 @@ class preprocess:
         start_time = time.time()
         
         signals = self.signals
-        sensors = self.sensors
+        Wns = self.Wns
         filtered = pd.DataFrame(index=self.signals.index)  # Ensure filtered DataFrame has the same index as signals
         
         # The software records the fps for all three lights combined
         # therefore, to get each light's actual rate, one must divide by the number of lights used
-        fps = self.Info['Fps'] / len(sensors)
+        fps = self.Info['Fps'] / len(Wns)
         print('recording frame rate per wavelength: ', fps)
         
         # Add 'filtering_Wn' key if it doesn't exist
@@ -295,18 +295,8 @@ class preprocess:
             self.Info['filtering_Wn'] = {}
         
         for signal in signals:
-            sensor = sensors[signal]
-            print(f'Filtering {signal} with sensor {sensor}')
-            
-            # Determine cutoff frequency and filter order
-            if sensor == 'G8m':
-                Wn = 25
-            elif sensor == 'g5-HT3':
-                Wn = 3
-            elif isinstance(sensor, int):
-                Wn = 100 / (sensor / 3)
-            else:
-                Wn = 1000 / (int(input("Enter sensor half decay time: ")) / 3)
+            Wn = Wns[signal]
+            print(f'Filtering {signal} with Wn {Wn}')
             
             # Store the Wn value for this signal in 'filtering_Wn'
             self.Info['filtering_Wn'][signal] = [Wn]
@@ -320,7 +310,7 @@ class preprocess:
                 self.Info['filtering_Wn'][signal].append(True)
             
             except ValueError:
-                print(f'Wn is set to {Wn} for the sensor {sensor}, while the frame rate is set to {fps} fps')
+                print(f'Wn is set to {Wn}, while the frame rate is set to {fps} fps')
                 print(f'Digital filter critical frequencies must be 0 < Wn < fs/2 (fs={fps} -> fs/2={fps/2})')
                 print(f'The signal {signal} is not filtered and will be returned as-is.')
                 self.Info['filtering_Wn'][signal].append(False)
@@ -602,7 +592,7 @@ class preprocess:
         info_columns['Area'] = [Area for i in range(len(info_columns))]
         Sex = input('Add the sex of the mouse: ')
         info_columns['Sex'] = [Sex for i in range(len(info_columns))]
-        self.Info['mouse_info'] = {'sensors': self.sensors, 'target_area': Area,'sex': Sex}
+        self.Info['mouse_info'] = {'target_area': Area,'sex': Sex}
         
         print(f'info added for {self.mousename }\n')
         return info_columns

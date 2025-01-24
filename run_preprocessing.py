@@ -25,8 +25,8 @@ for dirpath, subdirs, files in os.walk(rootdir):
             paths.append(dirpath)
 
 for path in paths:
-    sensors = {'470':'G8m', '560':'G8m', '410':'G8m'} #{'470':'G8m', '560':'G8m', '410':'G8m'} #{'470':'g5-HT3', '560':'g5-HT3', '410':'g5-HT3'}
-    processed = preprocess(path, sensors)
+    Wns = {'470':3, '560':25, '410':3} #Update cutoff frequencies
+    processed = preprocess(path, Wns)
     processed.Info = processed.get_info()
     processed.rawdata, processed.data, processed.data_seconds, processed.signals, processed.save_path = processed.create_basic(path_save ='/Volumes/RanczLab/20240730_Mismatch_Experiment/GRAB_MMclosed-and-Regular_220824/')
     processed.events = processed.extract_events()
