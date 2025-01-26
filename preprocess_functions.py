@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import csv
-from scipy.signal import medfilt, butter, filtfilt
+from scipy.signal import butter, filtfilt
 from scipy.stats import linregress, zscore
 from scipy.optimize import curve_fit, minimize
 from datetime import datetime, timedelta
@@ -12,37 +12,45 @@ import time
 
 class preprocess:
     def __init__(self, path, sensors):
-        if path[-1]== '/':
-            self.path = path
-        else:
-            self.path = path+'/'
+        """
+        Initializes the preprocess class with the given path and sensors.
+        Parameters:
+        path (str): The path to the data directory.
+        sensors (list): List of sensors used in the experiment.
+        """
+        self.path = os.path.join(path, '')
         self.sensors = sensors
-        #self.colors = mpl.colormaps['tab10'].colors
         self.colors = ['mediumseagreen', 'indianred', 'mediumpurple', 'steelblue']
+        #self.colors = mpl.colormaps['tab10'].colors
 
     def get_info(self):
-        with open(self.path+'Fluorescence.csv', newline='') as f:
+        """
+        Reads the Fluorescence.csv file and extracts experiment information.
+        Returns:
+        dict: A dictionary containing experiment information.
+        """
+        with open(os.path.join(self.path, 'Fluorescence.csv'), newline='') as f:
             reader = csv.reader(f)
             row1 = next(reader)
-        Info = str(row1[0]).replace(";", ",")
-        Info = Info.replace('true', 'True')
-        Info = eval(Info.replace("false", "False"))
-        fps = Info['Fps']
-        Light_info = Info['Light']
-        if Light_info['Led560Enable'] == True:
-            red_light = Light_info['Led560Value']
-        if Light_info['Led410Enable'] == True:
-            blue_light = Light_info['Led410Value']
-        if Light_info['Led470Enable'] == True:
-            green_light = Light_info['Led470Value']
-        Excitation = Info['Excitation']
-        mode = Excitation['mode']
-        discontious = Excitation['discontinuous']
-        interval_time = Excitation['interval_time']
-        continous_time = Excitation['continuous_time']
-        return(Info)
 
-    def create_basic(self, cutend = False, path_save = None):
+        info_str = str(row1[0]).replace(";", ",").replace('true', 'True').replace("false", "False")
+        Info = eval(info_str)
+
+        sample_rate = Info.get('Fps')
+        Light_info = Info.get('Light', {})
+        red_light = Light_info.get('Led560Value') if Light_info.get('Led560Enable') else None
+        blue_light = Light_info.get('Led410Value') if Light_info.get('Led410Enable') else None
+        green_light = Light_info.get('Led470Value') if Light_info.get('Led470Enable') else None
+
+        Excitation = Info.get('Excitation', {})
+        mode = Excitation.get('mode')
+        discontious = Excitation.get('discontinuous')
+        interval_time = Excitation.get('interval_time')
+        continous_time = Excitation.get('continuous_time')
+
+        return Info
+
+    def create_basic(self, cutend = False, cutstart = False, path_save = None):
         '''
         This is the same as create basic except that it uses Events.csv and Fluorescence-unaligned.csv.
         1) aligns events and all fluorescence to the 470 nm channel in one dataframe
@@ -118,7 +126,10 @@ class preprocess:
             rawdata = pd.merge_asof(df_final, events[['TimeStamp', 'Event', 'State']], on='TimeStamp', direction='backward')
             rawdata = rawdata.loc[:,~rawdata.columns.str.contains('^Unnamed')]  # sometimes an Unnamed column has appeared...
             # removing first 15 seconds because of bleaching
-            data = rawdata[rawdata["TimeStamp"] > 15000]  # removing first 15 seconds because of bleaching
+            if cutstart == True:
+                data = rawdata[rawdata["TimeStamp"] > 15000]  # removing first 15 seconds because of bleaching
+            else:
+                data = rawdata[rawdata["TimeStamp"] > 0]  # NOT removing first 15 seconds because of bleaching
         if cutend == True:
             data = data.drop(data.tail(300).index) #This can be done if fiber was by mistake removed before 
         data_seconds = pd.DataFrame([second for second in data['TimeStamp'] / 1000], columns=['TimeStamp'])
@@ -277,18 +288,31 @@ class preprocess:
 
 
 
-    def low_pass_filt(self, plot=False):
-    
+    def low_pass_filt(self, plot=False, x_start=None, x_end=None):
+        """
+        Apply low-pass filter to signals.
+        
+        Parameters:
+        plot (bool): Whether to plot the filtered signals
+        x_start (float, optional): Start time for x-axis in seconds. If None, uses minimum time.
+        x_end (float, optional): End time for x-axis in seconds. If None, uses maximum time.
+        """
         start_time = time.time()
         
         signals = self.signals
         sensors = self.sensors
-        filtered = pd.DataFrame(index=self.signals.index)  # Ensure filtered DataFrame has the same index as signals
+        filtered = pd.DataFrame(index=self.signals.index)
         
-        # The software records the fps for all three lights combined
+        # Set x-axis limits
+        if x_start is None:
+            x_start = self.data_seconds['TimeStamp'].min()
+        if x_end is None:
+            x_end = self.data_seconds['TimeStamp'].max()
+        
+        # The software records the Fps for all three lights combined
         # therefore, to get each light's actual rate, one must divide by the number of lights used
-        fps = self.Info['Fps'] / len(sensors)
-        print('recording frame rate per wavelength: ', fps)
+        sample_rate = self.Info['Fps'] / len(sensors)
+        #print('recording frame rate per wavelength: ', sample_rate)
         
         # Add 'filtering_Wn' key if it doesn't exist
         if 'filtering_Wn' not in self.Info:
@@ -296,32 +320,34 @@ class preprocess:
         
         for signal in signals:
             sensor = sensors[signal]
-            print(f'Filtering {signal} with sensor {sensor}')
             
             # Determine cutoff frequency and filter order
             if sensor == 'G8m':
-                Wn = 25
+                Wn = 10
+            elif sensor == 'rG1':
+                Wn = 10 
             elif sensor == 'g5-HT3':
-                Wn = 3
+                Wn = 5
             elif isinstance(sensor, int):
                 Wn = 100 / (sensor / 3)
             else:
                 Wn = 1000 / (int(input("Enter sensor half decay time: ")) / 3)
+                
+            print(f'Filtering {signal} with sensor {sensor} at {Wn} Hz')
             
             # Store the Wn value for this signal in 'filtering_Wn'
             self.Info['filtering_Wn'][signal] = [Wn]
             
             try:
                 # Design the filter
-                b, a = butter(2, Wn, btype='low', fs=fps)
+                b, a = butter(2, Wn, btype='low', fs=sample_rate)
                 # Apply the filter
                 filtered[f'filtered_{signal}'] = filtfilt(b, a, signals[signal])
-                print(f"Filtering of {signal} completed. Time taken:", time.time() - start_time)
+                #print(f"Filtering of {signal} completed. Time taken:", time.time() - start_time)
                 self.Info['filtering_Wn'][signal].append(True)
             
             except ValueError:
-                print(f'Wn is set to {Wn} for the sensor {sensor}, while the frame rate is set to {fps} fps')
-                print(f'Digital filter critical frequencies must be 0 < Wn < fs/2 (fs={fps} -> fs/2={fps/2})')
+                print(f'Wn is set to {Wn} for the sensor {sensor}, while the samplig rate {sample_rate} Hz is less than 2 * {Wn}')
                 print(f'The signal {signal} is not filtered and will be returned as-is.')
                 self.Info['filtering_Wn'][signal].append(False)
                 # Copy the unfiltered signal to the filtered DataFrame
@@ -337,20 +363,37 @@ class preprocess:
                 axes = [axes]
             
             for ax, signal, color in zip(axes, signals, self.colors):
-                ax.plot(self.data_seconds, signals[signal], label='Original', color=color, alpha=0.5)
-                ax.plot(self.data_seconds, filtered[f'filtered_{signal}'], label='Filtered', color=color, alpha=1)
+                # Create mask using data index
+                mask = (self.data_seconds.index >= self.data_seconds[self.data_seconds['TimeStamp'] >= x_start].index[0]) & \
+                    (self.data_seconds.index <= self.data_seconds[self.data_seconds['TimeStamp'] <= x_end].index[-1])
+                
+                # Plot data
+                ax.plot(self.data_seconds['TimeStamp'], signals[signal], label='Original', color=color, alpha=0.5, linewidth=2)
+                ax.plot(self.data_seconds['TimeStamp'], filtered[f'filtered_{signal}'], label='Filtered', color=color, alpha=1)
+                
+                # Set x limits
+                ax.set_xlim([x_start, x_end])
+                
+                # Set y limits based on visible range
+                visible_orig = signals[signal][mask]
+                visible_filt = filtered[f'filtered_{signal}'][mask]
+                y_min = min(visible_orig.min(), visible_filt.min())
+                y_max = max(visible_orig.max(), visible_filt.max())
+                ax.set_ylim([y_min, y_max])
+                
                 ax.set_title(f'Signal: {signal}')
-                ax.set_ylabel(f'fluorescence')
+                ax.set_ylabel('fluorescence')
                 ax.legend()
             
             axes[-1].set_xlabel('Seconds')
-            plt.tight_layout()
-            plt.show()
             fig.suptitle('Low-pass Filtered Signals')
-        
-            # Save plot to file
-            plt.savefig(self.save_path + f'/low-pass_filtered_{self.mousename}.png', dpi=150)  # Lower DPI to save time
-            plt.close()
+            plt.tight_layout()
+            
+             # Save plot to file
+            fig.savefig(self.save_path + f'/low-pass_filtered_{self.mousename}.png', dpi=150)  # Lower DPI to save time
+            
+            plt.show()
+            plt.close(fig)
             
         return filtered    
 
