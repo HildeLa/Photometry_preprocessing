@@ -399,14 +399,16 @@ class preprocess:
 
 
 
-    def detrend(self, plot = False):
+    def detrend(self, plot=False, method='divisive'):
         try:
             traces = self.filtered
         except:
             print('No filtered signal was found')
             traces = self.signals
-        data_detrended = pd.DataFrame()
+            
+        data_detrended = pd.DataFrame(index=traces.index)  # Initialize with proper index
         exp_fits = pd.DataFrame()
+        
         if 'detrend_params' not in self.Info:
             self.Info['detrend_params'] = {}
             
@@ -429,8 +431,13 @@ class preprocess:
         ### Find out if initial parameters should be set differently
         for trace in traces:
             max_sig = np.max(traces[trace])
-            inital_params = [max_sig / 2, max_sig / 4, max_sig / 4, 3600, 0.1]  # Why 3600, why 4, why 0.1
-            bounds = ([0, 0, 0, 1000, 0],
+            min_sig = np.min(traces[trace])
+            C_guess = np.percentile(traces[trace], 5)
+            #inital_params = [max_sig / 2, max_sig / 4, max_sig / 4, 3600, 0.1]  # original from Akam, Why 3600, why 4, why 0.1
+            #bounds = ([0, 0, 0, 600, 0],
+            #     [max_sig, max_sig, max_sig, 36000, 1]) # original from Akam,
+            inital_params = [max_sig*0.5, max_sig*0.1, max_sig*0.1, 100, 0.1]
+            bounds = ([0, 0, 0, 0, 0],
                   [max_sig, max_sig, max_sig, 36000, 1])
             try:
                 signal_parms, parm_cov = curve_fit(double_exponential, self.data_seconds['TimeStamp'], traces[trace], p0=inital_params, bounds=bounds, maxfev=1000)
@@ -440,12 +447,16 @@ class preprocess:
             signal_expfit = double_exponential(self.data_seconds['TimeStamp'], *signal_parms)
             print(f'Parameters used for detrending {trace}: ', signal_parms)
             self.Info['detrend_params'][trace]=signal_parms
-            signal_detrended = traces[trace].reset_index(drop=True) - signal_expfit.reset_index(drop=True)
-            data_detrended[f'detrend{trace[-4:]}'] = signal_detrended
+            if method == "subtractive":
+                signal_detrended = traces[trace].reset_index(drop=True) - signal_expfit.reset_index(drop=True)
+            if method == "divisive":
+                signal_detrended = traces[trace].reset_index(drop=True) / signal_expfit.reset_index(drop=True)
+            # Add detrended signal to DataFrame
+            data_detrended[f'detrend_{trace}'] = signal_detrended
             exp_fits[f'expfit{trace[-4:]}'] = signal_expfit
 
         #Plotting the detrended data
-        if plot:
+        if plot and len(data_detrended.columns) > 0:  # Only plot if there's data
             fig, axs = plt.subplots(len(data_detrended.columns), figsize = (15, 10), sharex=True)
             color_count = 0
             for column, ax in zip(data_detrended.columns, axs):
@@ -458,20 +469,32 @@ class preprocess:
             plt.savefig(self.save_path + f'/Detrended_data_{self.mousename}.png', dpi=300)
     
             # Plotting the filtered data with the exponential fit
-            fig, axs = plt.subplots(len(traces.columns),figsize = (15, 10), sharex=True)
+            fig, axs = plt.subplots(len(traces.columns), figsize=(15, 10), sharex=True)
             color_count = 0
             for trace, exp, ax in zip(traces.columns, exp_fits.columns, axs):
-                line1 = ax.plot(self.data_seconds, traces[trace], c=self.colors[color_count], label=trace)
+                # Plot original data
+                line1 = ax.plot(self.data_seconds, traces[trace], c=self.colors[color_count], label=trace, alpha=0.7)
                 color_count += 1
+                
+                # Create twin axis and plot exp fit
                 ax2 = ax.twinx()
-                line2 = ax2.plot(self.data_seconds, exp_fits[exp], c=self.colors[color_count], alpha =0.5, label=exp)
-                ax.set(ylabel='fluoresence')
+                line2 = ax2.plot(self.data_seconds, exp_fits[exp], c='black', label=exp)
+                
+                # Get combined y limits
+                y_min = min(traces[trace].min(), exp_fits[exp].min())
+                y_max = max(traces[trace].max(), exp_fits[exp].max())
+                
+                # Set same limits for both axes
+                ax.set_ylim([y_min, y_max])
+                ax2.set_ylim([y_min, y_max])
+                
+                ax.set(ylabel='fluorescence')
                 ax2.set(ylabel='exponential fit')
                 lns = line1 + line2
                 labs = [l.get_label() for l in lns]
                 ax.legend(lns, labs, loc=0)
-    
-            axs[-1].set(xlabel = 'seconds')
+            
+            axs[-1].set(xlabel='seconds')
             fig.suptitle(f'exponential fit {self.mousename}')
             plt.savefig(self.save_path + f'/exp-fit_{self.mousename}.png', dpi=300)
 
