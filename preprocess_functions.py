@@ -433,15 +433,13 @@ class preprocess:
             return amp_const + amp_slow * np.exp(-time / tau_slow) + amp_fast * np.exp(-time / tau_fast)
 
         # Fit curve to signal.
-        ### Find out if initial parameters should be set differently
         for trace in traces:
             max_sig = np.max(traces[trace])
             min_sig = np.min(traces[trace])
-            C_guess = np.percentile(traces[trace], 5)
             #inital_params = [max_sig / 2, max_sig / 4, max_sig / 4, 3600, 0.1]  # original from Akam, Why 3600, why 4, why 0.1
             #bounds = ([0, 0, 0, 600, 0],
             #     [max_sig, max_sig, max_sig, 36000, 1]) # original from Akam,
-            inital_params = [max_sig*0.5, max_sig*0.1, max_sig*0.1, 100, 0.1]
+            inital_params = [max_sig*0.5, max_sig*0.1, min_sig*0.8, 100, 0.1]
             bounds = ([0, 0, 0, 0, 0],
                   [max_sig, max_sig, max_sig, 36000, 1])
             try:
@@ -462,17 +460,7 @@ class preprocess:
 
         #Plotting the detrended data
         if plot and len(data_detrended.columns) > 0:  # Only plot if there's data
-            fig, axs = plt.subplots(len(data_detrended.columns), figsize = (15, 10), sharex=True)
-            color_count = 0
-            for column, ax in zip(data_detrended.columns, axs):
-                ax.plot(self.data_seconds, data_detrended[column], c=self.colors[color_count], label=column)
-                ax.set(ylabel='data detrended')
-                color_count += 1
-                ax.legend()
-            axs[-1].set(xlabel='seconds')
-            fig.suptitle(f'detrended data {self.mousename}')
-            plt.savefig(self.save_path + f'/Detrended_data_{self.mousename}.png', dpi=300)
-    
+
             # Plotting the filtered data with the exponential fit
             fig, axs = plt.subplots(len(traces.columns), figsize=(15, 10), sharex=True)
             color_count = 0
@@ -502,6 +490,20 @@ class preprocess:
             axs[-1].set(xlabel='seconds')
             fig.suptitle(f'exponential fit {self.mousename}')
             plt.savefig(self.save_path + f'/exp-fit_{self.mousename}.png', dpi=300)
+            
+            fig, axs = plt.subplots(len(data_detrended.columns), figsize = (15, 10), sharex=True)
+            color_count = 0
+            for column, ax in zip(data_detrended.columns, axs):
+                ax.plot(self.data_seconds, data_detrended[column], c=self.colors[color_count], label=column)
+                if method == "subtractive":
+                    ax.set(ylabel='data detrended (raw A.U.)')
+                if method == "divisive":
+                    ax.set(ylabel='data detrended (dF/F)')
+                color_count += 1
+                ax.legend()
+            axs[-1].set(xlabel='seconds')
+            fig.suptitle(f'detrended data {self.mousename}')
+            plt.savefig(self.save_path + f'/Detrended_data_{self.mousename}.png', dpi=300)
 
         return data_detrended, exp_fits
 
@@ -512,13 +514,25 @@ class preprocess:
         Can change to always performing motion correction or changing to 560 if a red sensor is used for motion correction.
         Returns empty list if data could not be motion corrected.
         '''
+         # Check if we have detrended data
+        if not hasattr(self, 'data_detrended'):
+            print('No detrended data found. Run detrend() method first.')
+            return []
+        
         data = self.data_detrended
+        
+        # Check if required columns exist
+        required_columns = ['detrend_filtered_410', 'detrend_filtered_470']
+        if not all(col in data.columns for col in required_columns):
+            print('Required columns (detrend_filtered_410, detrend_filtered_470) not found in detrended data.')
+            return []
+        
         try:
-            slope, intercept, r_value, p_value, std_err = linregress(x=data['detrend_410'], y=data['detrend_470'])
+            slope, intercept, r_value, p_value, std_err = linregress(x=data['detrend_filtered_410'], y=data['detrend_filtered_470'])
             print(f'The slope of the linear regression between the main signal and the control is: ', slope)
             if plot:
                 fig, ax = plt.subplots(figsize=(15, 10))
-                plt.scatter(data['detrend_410'][::5], data['detrend_470'][::5], alpha=0.1, marker='.')
+                plt.scatter(data['detrend_filtered_410'][::5], data['detrend_filtered_470'][::5], alpha=0.1, marker='.')
                 x = np.array(ax.get_xlim())
                 ax.plot(x, intercept + slope * x)
                 ax.set_xlabel('410')
@@ -533,8 +547,8 @@ class preprocess:
             print('R-squared: {:.3f}'.format(r_value ** 2))
             
             if slope > 0:
-                control_corr = intercept + slope * data['detrend_410']
-                signal_corrected = data['detrend_470'] - control_corr
+                control_corr = intercept + slope * data['detrend_filtered_410']
+                signal_corrected = data['detrend_filtered_470'] - control_corr
                 return signal_corrected
             else:
                 print('signal could not be motion corrected')
@@ -594,43 +608,77 @@ class preprocess:
         :returns
         - dF/F (signals relative to baseline)
         '''
-        dF_F = pd.DataFrame()
-        if motion == False:
-            main_data = self.data_detrended
-            for signal, fit in zip(main_data, self.exp_fits):
-                F = self.exp_fits[fit]
-                deltaF = main_data[signal]
-                signal_dF_F = 100 * deltaF / F
-                dF_F[f'{signal[-3:]}_dfF'] = signal_dF_F
-        if motion == True:
-            deltaF = self.motion_corr
-            F = self.exp_fits['expfit_470']
-            signal_dF_F = 100 * deltaF / F
-            dF_F['470_dfF'] = signal_dF_F
-            main_data = self.data_detrended
-            for signal, fit in zip(main_data, self.exp_fits):
-                if '470' not in signal:
+        if self.Info['detrend_method'] == 'subtractive':
+            print('The method used for detrending was subtractive, deltaF/F is calculated now.')    
+            dF_F = pd.DataFrame()
+            if motion == False:
+                main_data = self.data_detrended
+                for signal, fit in zip(main_data, self.exp_fits):
                     F = self.exp_fits[fit]
                     deltaF = main_data[signal]
                     signal_dF_F = 100 * deltaF / F
                     dF_F[f'{signal[-3:]}_dfF'] = signal_dF_F
+            if motion == True:
+                deltaF = self.motion_corr
+                F = self.exp_fits['expfit_470']
+                signal_dF_F = 100 * deltaF / F
+                dF_F['470_dfF'] = signal_dF_F
+                main_data = self.data_detrended
+                for signal, fit in zip(main_data, self.exp_fits):
+                    if '470' not in signal:
+                        F = self.exp_fits[fit]
+                        deltaF = main_data[signal]
+                        signal_dF_F = 100 * deltaF / F
+                        dF_F[f'{signal[-3:]}_dfF'] = signal_dF_F
 
-        if plot:
-            fig, axs = plt.subplots(len(dF_F.columns),figsize = (15, 10), sharex=True)
-            color_count = 0
-            if len(dF_F.columns) >1:
-                for column, ax in zip(dF_F.columns, axs):
-                    ax.plot(self.data_seconds, dF_F[column], c = self.colors[color_count], label = column)
-                    ax.set(xlabel='seconds', ylabel='Delta F fluorescence')
-                    ax.legend()
-                    color_count += 1
-            else:
-                axs.plot(self.data_seconds, dF_F, c=self.colors[2])
-                axs.set(xlabel='seconds', ylabel='Delta F fluorescence')
-            fig.suptitle(f'Delta F / F to exponential fit {self.mousename}')
-            plt.savefig(self.save_path+f'/deltaf-F_figure_{self.mousename}.png', dpi = 300)
+            if plot:
+                fig, axs = plt.subplots(len(dF_F.columns),figsize = (15, 10), sharex=True)
+                color_count = 0
+                if len(dF_F.columns) >1:
+                    for column, ax in zip(dF_F.columns, axs):
+                        ax.plot(self.data_seconds, dF_F[column], c = self.colors[color_count], label = column)
+                        ax.set(xlabel='seconds', ylabel='dF/F')
+                        ax.legend()
+                        color_count += 1
+                else:
+                    axs.plot(self.data_seconds, dF_F, c=self.colors[2])
+                    axs.set(xlabel='seconds', ylabel='dF/F')
+                fig.suptitle(f'Delta F / F to exponential fit {self.mousename}')
+                plt.savefig(self.save_path+f'/deltaf-F_figure_{self.mousename}.png', dpi = 300)
+                
+            return dF_F
+        if self.Info['detrend_method'] == 'divisive': 
+            print('The method used for detrending was divisive, deltaF/F has been already calculated')
+            dF_F = pd.DataFrame()
             
-        return dF_F
+            if motion == False:
+                # Copy all detrended signals to dF_F
+                for signal in self.data_detrended.columns:
+                    dF_F[f'{signal[-3:]}_dfF'] = self.data_detrended[signal]
+            else:
+                # Add motion corrected 470 signal
+                dF_F['470_dfF'] = self.motion_corr
+                # Add other signals if they exist
+                for signal in self.data_detrended.columns:
+                    if '470' not in signal:
+                        dF_F[f'{signal[-3:]}_dfF'] = self.data_detrended[signal]
+            
+            if plot:
+                fig, axs = plt.subplots(len(dF_F.columns),figsize = (15, 10), sharex=True)
+                color_count = 0
+                if len(dF_F.columns) >1:
+                    for column, ax in zip(dF_F.columns, axs):
+                        ax.plot(self.data_seconds, dF_F[column], c = self.colors[color_count], label = column)
+                        ax.set(xlabel='seconds', ylabel='dF/F')
+                        ax.legend()
+                        color_count += 1
+                else:
+                    axs.plot(self.data_seconds, dF_F, c=self.colors[2])
+                    axs.set(xlabel='seconds', ylabel='dF/F')
+                fig.suptitle(f'Delta F / F to exponential fit {self.mousename}')
+                plt.savefig(self.save_path+f'/deltaf-F_figure_{self.mousename}.png', dpi = 300)
+                
+            return dF_F
 
     def write_info_csv(self):
         '''
