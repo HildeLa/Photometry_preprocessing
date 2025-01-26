@@ -411,6 +411,11 @@ class preprocess:
         
         if 'detrend_params' not in self.Info:
             self.Info['detrend_params'] = {}
+        
+        if 'detrend_method' not in self.Info:
+            self.Info['detrend_method'] = {}
+        
+        self.Info['detrend_method'] = method
             
         def double_exponential(time, amp_const, amp_fast, amp_slow, tau_slow, tau_multiplier):
             '''
