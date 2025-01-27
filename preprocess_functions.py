@@ -255,13 +255,16 @@ class preprocess:
 
         #Adding mousename in self for plotting and naming #FIXME superfluous, could take from self.Info
         self.mousename = mousename
-        #Adding mousename and target_are to Info  
+        #Adding mousename, target_area and experiment typy to Info  
         if 'mousename' not in self.Info:
             self.Info['mousename'] = ()
         self.Info['mousename']= mousename
         if 'target_area' not in self.Info:
             self.Info['target_area'] = ()
         self.Info['target_area'] = target_area
+        if 'experiment_type' not in self.Info:
+            self.Info['experiment_type'] = ()
+        self.Info['experiment_type'] = experiments
         
         return(rawdata, data, data_seconds, signals, save_path)
         
