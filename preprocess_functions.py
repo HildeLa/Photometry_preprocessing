@@ -10,6 +10,15 @@ import os
 import matplotlib as mpl
 import time
 
+#FIXME list
+#save_path generation and usage should be refactored
+#Events handling is confusing and probably unnecessary complicated (see issue #4 on repo)
+    #remove extract_events method as not needed
+    #remove events from create_basic as not needed
+#remove session after save_path refactoring in create_basic (as won't be used)
+#remove needless lines marked with FIXME
+
+
 class preprocess:
     def __init__(self, path, sensors):
         """
@@ -50,26 +59,29 @@ class preprocess:
 
         return Info
 
-    def create_basic(self, cutend = False, cutstart = False, path_save = None):
+    def create_basic(self, cutend = False, cutstart = False, path_save = None, target_area = 'X'):
         '''
-        This is the same as create basic except that it uses Events.csv and Fluorescence-unaligned.csv.
+        The code assumes 470 nm channel always has data and does the following.
+        0) loads Events.csv and Fluorescence-unaligned.csv
         1) aligns events and all fluorescence to the 470 nm channel in one dataframe
-        2) removed first 15 seconds and makes a new TimeStamp column in seconds rather than ms
-        3) look at info to see which nm signals were recorded, and makes a df with the data from those
-        4) use the path to make a new path to the output data from the preprocessing.
+        2) if cutstart = True, removes first 15 seconds
+        3) creates a new TimeStamp column in seconds rather than ms 
+        4) creates a df with the data from all recorded wavelengths
+        5) use the path to make a new path to the output data from the preprocessing.
         A folder should already have been made called 'preprocessed'.
         If they don't exist, the mouse ID, date and time, and experiment as indicated from the path is used to make a
-        path to the output files. This means that the path should be of the format:
+        path to the output files. This means that the path should be of the format:#FIXME: refactor after folder structure is decided
             ***location**/Experiment_name/[four characted mouse ID]_[other-info]/[YYY_MM_DD-hh_mm_ss]
             [four characted mouse ID]: is the name of the recording, specified in the photometry software
             [YYY_MM_DD-hh_mm_ss]: automatically generated folder as a recording is initiated in the photometry software
             Experiment_name: all recording in the same experiment should be in the same folder
 
         :param: cutend: default set to False, set it to true if you know that you forgot to turn off the equipment before removing fiber
-        :return: rawdata, data, data_seconds, signals, save_path
-        'signals' is the most important dataframe containing all the data
-        'save_path' will indicate where the data should be saved to
+        :param: cutstart: default set to False,removes first 15 seconds
+        :return: rawdata, data (cut at start and end if needed), data_seconds (timestamp), signals (main output df), save_path
+        'save_path' #FIXME: refactor after folder structure is decided
         '''
+        
         Info = self.Info
         event_path = self.path + 'Events.csv'  # events with precise timestamps
         fluorescence_path = self.path + 'Fluorescence-unaligned.csv'  # fluorescence with precise timestamps
@@ -77,7 +89,7 @@ class preprocess:
         #reading the csv files into pandas dataframes
         events = pd.read_csv(event_path)
         fluorescence = pd.read_csv(fluorescence_path)
-        # Create separate dataframes for each light
+        # Create separate dataframes for each wavelength
         df_470 = fluorescence[fluorescence['Lights'] == 470][['TimeStamp', 'Channel1']].rename(columns={'Channel1': '470'})
         df_410 = fluorescence[fluorescence['Lights'] == 410][['TimeStamp', 'Channel1']].rename(columns={'Channel1': '410'})
         df_560 = fluorescence[fluorescence['Lights'] == 560][['TimeStamp', 'Channel1']].rename(columns={'Channel1': '560'})
@@ -87,11 +99,11 @@ class preprocess:
         df_final = pd.merge_asof(df_470, df_410, on='TimeStamp', direction='backward')
         df_final = pd.merge_asof(df_final, df_560, on='TimeStamp', direction='backward')
 
-        # Fill nan values or handle missing data,
+        # Fill nan values or handle missing data
         # first forward filling and then backwards filling in case of nans at the end of the columns
         df_final['410'] = df_final['410'].ffill()
-        df_final['560'] = df_final['560'].ffill()
         df_final['410'] = df_final['410'].bfill()
+        df_final['560'] = df_final['560'].ffill()
         df_final['560'] = df_final['560'].bfill()
 
         #rename the 'Name' column in events to 'Event'
@@ -118,20 +130,23 @@ class preprocess:
         #merge events and fluorescence
         #is merged to match the 470 signal timestamps as closely as possible,
         # meaning that the event timestamps may be slightly shifted
+        # NOTE in practice, Events.csv saved at the end is exactly the same as the original Events.csv file, so unsure if pd.merge.asof is necessary
         if len(events) < 1:
+            print("WARNING: No events were found. Check for missing sync signal.")
             rawdata = df_final
             rawdata = rawdata.loc[:, ~rawdata.columns.str.contains('^Unnamed')]
-            data = rawdata[rawdata["TimeStamp"] > 30] 
+            #data = rawdata[rawdata["TimeStamp"] > 30] FIXME if this line is needed, weird magic number plus there should always be events 
         else:
-            rawdata = pd.merge_asof(df_final, events[['TimeStamp', 'Event', 'State']], on='TimeStamp', direction='backward')
+            rawdata = pd.merge_asof(df_final, events[['TimeStamp', 'Event', 'State']], on='TimeStamp', direction='backward') #FIXME this is not saved in the Events.csv file
             rawdata = rawdata.loc[:,~rawdata.columns.str.contains('^Unnamed')]  # sometimes an Unnamed column has appeared...
             # removing first 15 seconds because of bleaching
-            if cutstart == True:
-                data = rawdata[rawdata["TimeStamp"] > 15000]  # removing first 15 seconds because of bleaching
+            if cutstart:
+                # Remove initial bleaching period (first 15 seconds)
+                 data = rawdata[rawdata["TimeStamp"] > 15000]  
             else:
-                data = rawdata[rawdata["TimeStamp"] > 0]  # NOT removing first 15 seconds because of bleaching
+                data = rawdata[rawdata["TimeStamp"] > -1]
         if cutend == True:
-            data = data.drop(data.tail(300).index) #This can be done if fiber was by mistake removed before 
+            data = data.drop(data.tail(300).index) #This can be done if fiber was by mistake removed before NOTE why 300?
         data_seconds = pd.DataFrame([second for second in data['TimeStamp'] / 1000], columns=['TimeStamp'])
         signals = pd.DataFrame()
         if Info['Light']['Led470Enable'] == True:
@@ -144,15 +159,13 @@ class preprocess:
         recording_time = self.path.split('/')[-2][:]  # use same file name as folder
         mousename = self.path.split('/')[-3]#[:6]
         mousename_recordtime = f'{mousename}_{recording_time}'
-        print(f'\n\n \033[1m Preprocessing data for {mousename} at {recording_time} ...\033[0m \n')
+        print(f'Preprocessing data for {mousename} at {recording_time}...\n')
         experiments = self.path.split('/')[-4][:]  #
-        session = self.path.split('/')[-3][5:]
+        session = self.path.split('/')[-3][5:] #FIXME remove as not used 
         if '&' in session:
             session = session.replace('&', '-')
 
         #Adding events as booleans
-        print('Adding event bools')
-        
         # Create a new column for each unique event in the 'Name' column
         unique_events = events['Event'].unique()
         data = data.copy()
@@ -174,10 +187,9 @@ class preprocess:
             for start, end in zip(start_timestamps, end_timestamps):
                 mask = (data['TimeStamp'] >= start) & (data['TimeStamp'] <= end)
                 data.loc[mask, f"{event}_event"] = True 
-            
-        
 
-        #Use path_save to ensure the data is saved where the Onix data is located
+        #FIXME - this is a mess. Generate save_path based on the path of the data and not take as input parameter 
+        # Use path_save to ensure the data is saved where the Onix data is located
         if path_save is not None:
 
             save_path = None  # Initialize the save_path variable
@@ -195,9 +207,6 @@ class preprocess:
                     # Create 'photometry_processed' directory if it doesn't exist
                     if not os.path.exists(photometry_dir):
                         os.makedirs(photometry_dir)
-                        print(f"Created 'photometry_processed' directory at: {photometry_dir}")
-                    else:
-                        print(f"'photometry_processed' directory already exists at: {photometry_dir}")
                     
                     save_path = photometry_dir  # Save the final path
                     break  # Exit the loop since we found the directory
@@ -208,22 +217,16 @@ class preprocess:
                 root_photometry_dir = os.path.join(path_save, 'photometry_processed')
                 if not os.path.exists(root_photometry_dir):
                     os.makedirs(root_photometry_dir)
-                    print(f"Created 'photometry_processed' directory at: {root_photometry_dir}")
-                else:
-                    print(f"'photometry_processed' directory already exists at: {root_photometry_dir}")
                 
                 # Create a subdirectory named after the mousename
                 mousename_dir = os.path.join(root_photometry_dir, mousename)
                 if not os.path.exists(mousename_dir):
                     os.makedirs(mousename_dir)
-                    print(f"Created directory for mouse '{mousename}' at: {mousename_dir}")
-                else:
-                    print(f"Directory for mouse '{mousename}' already exists at: {mousename_dir}")
                 
                 save_path = mousename_dir  # Save the final path
             
             # Print the save_path
-            print(f"Final save path: {save_path}")
+            print(f"Final save path: \n{save_path}")
 
         #If there is no path for saving, a path will be created based on the directory structure of the input path
         #The data will then be saved to a folder named Processed in the directory from whic the script is run
@@ -250,13 +253,20 @@ class preprocess:
         
             save_path = f'{mainfolder}/{experiments}/{session}/{mousename_recordtime}'
 
-        #Adding mousename in self for plotting and naming
+        #Adding mousename in self for plotting and naming #FIXME superfluous, could take from self.Info
         self.mousename = mousename
-                        
+        #Adding mousename and target_are to Info  
+        if 'mousename' not in self.Info:
+            self.Info['mousename'] = ()
+        self.Info['mousename']= mousename
+        if 'target_area' not in self.Info:
+            self.Info['target_area'] = ()
+        self.Info['target_area'] = target_area
+        
         return(rawdata, data, data_seconds, signals, save_path)
         
  
-    def extract_events(self): 
+    def extract_events(self): #FIXME DEPRECATED   
         """
         Assigns a boolean data column for each unique event type indicating 
         whether the event occurred at each time point (True/False). 
@@ -282,18 +292,17 @@ class preprocess:
                 if 'event' in col:
                     events[col]= data[col]
             
-
-        
         return events#data[[event for event in events]]
 
 
 
-    def low_pass_filt(self, plot=False, x_start=None, x_end=None):
+    def low_pass_filt(self, method = "auto", plot=False, x_start=None, x_end=None, savefig = False):
         """
         Apply low-pass filter to signals.
         
         Parameters:
         plot (bool): Whether to plot the filtered signals
+        method (str): Method to determine cutoff frequency. Options: 'auto', 'sensor'
         x_start (float, optional): Start time for x-axis in seconds. If None, uses minimum time.
         x_end (float, optional): End time for x-axis in seconds. If None, uses maximum time.
         """
@@ -317,23 +326,30 @@ class preprocess:
         # Add 'filtering_Wn' key if it doesn't exist
         if 'filtering_Wn' not in self.Info:
             self.Info['filtering_Wn'] = {}
+        if 'filtering_method' not in self.Info:
+            self.Info['filtering_method'] = {}
         
         for signal in signals:
             sensor = sensors[signal]
             
             # Determine cutoff frequency and filter order
-            if sensor == 'G8m':
-                Wn = 10
-            elif sensor == 'rG1':
-                Wn = 10 
-            elif sensor == 'g5-HT3':
-                Wn = 5
-            elif isinstance(sensor, int):
-                Wn = 100 / (sensor / 3)
-            else:
-                Wn = 1000 / (int(input("Enter sensor half decay time: ")) / 3)
+            if method == 'auto':
+                Wn = np.floor(sample_rate / 2.01)  # Nyquist frequency
+                self.Info['filtering_method'][signal] = 'auto'
+            elif method == 'sensor': 
+                if sensor == 'G8m':
+                    Wn = 10
+                elif sensor == 'rG1':
+                    Wn = 10 
+                elif sensor == 'g5-HT3':
+                    Wn = 5
+                elif isinstance(sensor, int):
+                    Wn = 100 / (sensor / 3)
+                else:
+                    Wn = 1000 / (int(input("Enter sensor half decay time: ")) / 3)
+                self.Info['filtering_method'][signal] = 'sensor_specific'
                 
-            print(f'Filtering {signal} with sensor {sensor} at {Wn} Hz')
+            print(f'Filtering {signal} with method {method} at {Wn} Hz')
             
             # Store the Wn value for this signal in 'filtering_Wn'
             self.Info['filtering_Wn'][signal] = [Wn]
@@ -368,8 +384,8 @@ class preprocess:
                     (self.data_seconds.index <= self.data_seconds[self.data_seconds['TimeStamp'] <= x_end].index[-1])
                 
                 # Plot data
-                ax.plot(self.data_seconds['TimeStamp'], signals[signal], label='Original', color=color, alpha=0.5, linewidth=2)
-                ax.plot(self.data_seconds['TimeStamp'], filtered[f'filtered_{signal}'], label='Filtered', color=color, alpha=1)
+                ax.plot(self.data_seconds['TimeStamp'], signals[signal], label='Original', color=color, alpha=1, linewidth=1)
+                ax.plot(self.data_seconds['TimeStamp'], filtered[f'filtered_{signal}'], label='Filtered', color="black", linewidth=0.5, alpha=0.5)
                 
                 # Set x limits
                 ax.set_xlim([x_start, x_end])
@@ -386,11 +402,12 @@ class preprocess:
                 ax.legend()
             
             axes[-1].set_xlabel('Seconds')
-            fig.suptitle('Low-pass Filtered Signals')
+            fig.suptitle(f'Low-pass Filtered {self.mousename} with method: {method}')
             plt.tight_layout()
             
              # Save plot to file
-            fig.savefig(self.save_path + f'/low-pass_filtered_{self.mousename}.png', dpi=150)  # Lower DPI to save time
+            if savefig:
+                fig.savefig(self.save_path + f'/low-pass_filtered_{self.mousename}.png', dpi=150)  # Lower DPI to save time
             
             plt.show()
             plt.close(fig)
@@ -399,7 +416,7 @@ class preprocess:
 
 
 
-    def detrend(self, plot=False, method='divisive'):
+    def detrend(self, plot=False, method='divisive', savefig = False):
         try:
             traces = self.filtered
         except:
@@ -436,10 +453,7 @@ class preprocess:
         for trace in traces:
             max_sig = np.max(traces[trace])
             min_sig = np.min(traces[trace])
-            #inital_params = [max_sig / 2, max_sig / 4, max_sig / 4, 3600, 0.1]  # original from Akam, Why 3600, why 4, why 0.1
-            #bounds = ([0, 0, 0, 600, 0],
-            #     [max_sig, max_sig, max_sig, 36000, 1]) # original from Akam,
-            inital_params = [max_sig*0.5, max_sig*0.1, min_sig*0.8, 100, 0.1]
+            inital_params = [max_sig*0.5, max_sig*0.1, min_sig*0.8, 5, 0.1]
             bounds = ([0, 0, 0, 0, 0],
                   [max_sig, max_sig, max_sig, 36000, 1])
             try:
@@ -489,7 +503,8 @@ class preprocess:
             
             axs[-1].set(xlabel='seconds')
             fig.suptitle(f'exponential fit {self.mousename}')
-            plt.savefig(self.save_path + f'/exp-fit_{self.mousename}.png', dpi=300)
+            if savefig:
+                plt.savefig(self.save_path + f'/exp-fit_{self.mousename}.png', dpi=300)
             
             fig, axs = plt.subplots(len(data_detrended.columns), figsize = (15, 10), sharex=True)
             color_count = 0
@@ -502,13 +517,15 @@ class preprocess:
                 color_count += 1
                 ax.legend()
             axs[-1].set(xlabel='seconds')
-            fig.suptitle(f'detrended data {self.mousename}')
-            plt.savefig(self.save_path + f'/Detrended_data_{self.mousename}.png', dpi=300)
+            fig.suptitle(f'detrended data {self.mousename}, with method: {method}')
+            if savefig:
+                plt.savefig(self.save_path + f'/Detrended_data_{self.mousename}.png', dpi=300)
 
         return data_detrended, exp_fits
 
     def movement_correct(self, plot = False):
         '''
+        NOTE not used at the time (2025 Jan, Cohort0 and Cohort1)
         Uses detrended data from 410 and 470 signal to fit a linear regression that is then subtracted from the 470 data 
         only if the correlation is postive.
         Can change to always performing motion correction or changing to 560 if a red sensor is used for motion correction.
@@ -559,7 +576,7 @@ class preprocess:
             print(intercept, slope)
             return []
 
-    def z_score(self, motion = False, plot = False):
+    def z_score(self, motion = False, plot = False, savefig = False):
         '''
         Z-scoring of signal traces
         Gets relative values of signal
@@ -586,20 +603,23 @@ class preprocess:
             if len(zscored_data.columns) > 1:
                 for column, ax in zip(zscored_data.columns, axs):
                     ax.plot(self.data_seconds, zscored_data[column], c = self.colors[color_count], label = column)
-                    ax.set(xlabel='seconds', ylabel='z-scored fluorescence')
+                    ax.set(xlabel='seconds', ylabel='z-scored dF/F or raw')
                     ax.legend()
                     color_count += 1
             else:
                 axs.plot(self.data_seconds, zscored_data, c=self.colors[2])
-                axs.set(xlabel='seconds', ylabel='z-scored fluorescence')
+                axs.set(xlabel='seconds', ylabel='z-scored dF/F or raw')
                 axs.legend()
     
-            fig.suptitle(f'zscored_data {self.mousename}')
-            plt.savefig(self.save_path+f'/zscored_figure_{self.mousename}.png', dpi = 300)
+            method_label = "raw" if self.Info['detrend_method'] == "subtractive" else "dF/F"
+            fig.suptitle(f'Z-scored {method_label} data {self.mousename}')
+            
+            if savefig:
+                plt.savefig(self.save_path+f'/zscored_figure_{self.mousename}.png', dpi = 300)
 
         return zscored_data
 
-    def get_deltaF_F(self, motion = False, plot = False):
+    def get_deltaF_F(self, motion = False, plot = False, savefig = False):
         '''
         Input:
         - the detrended signal as delta F
@@ -644,7 +664,9 @@ class preprocess:
                     axs.plot(self.data_seconds, dF_F, c=self.colors[2])
                     axs.set(xlabel='seconds', ylabel='dF/F')
                 fig.suptitle(f'Delta F / F to exponential fit {self.mousename}')
-                plt.savefig(self.save_path+f'/deltaf-F_figure_{self.mousename}.png', dpi = 300)
+                
+                if savefig:
+                    plt.savefig(self.save_path+f'/deltaf-F_figure_{self.mousename}.png', dpi = 300)
                 
             return dF_F
         if self.Info['detrend_method'] == 'divisive': 
@@ -675,8 +697,10 @@ class preprocess:
                 else:
                     axs.plot(self.data_seconds, dF_F, c=self.colors[2])
                     axs.set(xlabel='seconds', ylabel='dF/F')
-                fig.suptitle(f'Delta F / F to exponential fit {self.mousename}')
-                plt.savefig(self.save_path+f'/deltaf-F_figure_{self.mousename}.png', dpi = 300)
+                fig.suptitle(f'Delta F/F {self.mousename}')
+                
+                if savefig:
+                    plt.savefig(self.save_path+f'/deltaf-F_figure_{self.mousename}.png', dpi = 300)
                 
             return dF_F
 
@@ -742,16 +766,16 @@ class preprocess:
     
         # Combine the base data #add or remove signals to save.
         final_df = pd.concat([self.data_seconds.reset_index(drop=True),
-                              self.filtered.reset_index(drop=True),
+                              #self.filtered.reset_index(drop=True),FIXME delete as not needed, mousename and target area already in info.csv 
                               self.deltaF_F.reset_index(drop=True),
-                              self.zscored.reset_index(drop=True),
-                              self.crucial_info.reset_index(drop=True)], axis=1)
+                              self.zscored.reset_index(drop=True),], axis=1)
+                              #self.crucial_info.reset_index(drop=True)], axis=1) FIXME delete as not needed, mousename and target area already in info.csv 
         
         final_df = final_df.loc[:, ~final_df.columns.str.contains('^Unnamed')] #removed unwanted extra column
     
         # Save the main fluorescence file
         final_df.to_csv(self.save_path + '/Processed_fluorescence.csv', index=False)
-        print('Processed_fluorescence.csv file saved to ', self.save_path)
+        print('Processed_fluorescence.csv file saved to\n', self.save_path)
         
         # Handle events if self.events exists
         if hasattr(self, 'events') and isinstance(self.events, pd.DataFrame) and (Onix_align ==False):
@@ -774,3 +798,91 @@ class preprocess:
         mpl.pyplot.close()
 
 
+    def show_structure(self):
+        """Display readable structure of photometry object"""
+        # Get attributes without dunders
+        attributes = [attr for attr in dir(self) if not attr.startswith('__')]
+        
+        # Organize by type
+        dataframes = []
+        methods = []
+        other = []
+        
+        for attr in attributes:
+            if isinstance(getattr(self, attr), pd.DataFrame):
+                dataframes.append(attr)
+            elif callable(getattr(self, attr)):
+                methods.append(attr)
+            else:
+                other.append(attr)
+                
+        # Print organized structure
+        print("\n=== DataFrames ===")
+        for df in sorted(dataframes):
+            shape = getattr(self, df).shape
+            print(f"{df}: {shape[0]} rows × {shape[1]} columns")
+            
+        print("\n=== Properties ===")
+        for prop in sorted(other):
+            print(f"{prop}: {type(getattr(self, prop)).__name__}")
+            
+        print("\n=== Methods ===")
+        print(", ".join(sorted(methods)))
+    
+    
+    def plot_all_signals(self):
+        """Generate comprehensive figure of signal processing steps on A4 page"""
+        # A4 dimensions and setup
+        A4_WIDTH = 8.27
+        A4_HEIGHT = 11.69
+        SMALL_SIZE = 6
+        MEDIUM_SIZE = 8
+        
+        plt.rc('font', size=SMALL_SIZE)          # controls default text sizes
+        plt.rc('axes', titlesize=MEDIUM_SIZE)    # fontsize of the axes title
+        plt.rc('axes', labelsize=SMALL_SIZE)     # fontsize of the x and y labels
+        plt.rc('legend', fontsize=SMALL_SIZE)    # legend fontsize
+        
+        n_signals = len(self.signals.columns)
+        n_rows = n_signals * 3
+        
+        # Create figure
+        fig = plt.figure(figsize=(A4_WIDTH, A4_HEIGHT))
+        gs = fig.add_gridspec(n_rows, 1, hspace=0.5)
+        
+        for idx, signal in enumerate(self.signals.columns):
+            # 1. Exponential fit
+            ax1 = fig.add_subplot(gs[idx*3])
+            ax1.plot(self.data_seconds['TimeStamp'], self.filtered[f'filtered_{signal}'],
+                    color=self.colors[idx], alpha=1, label=f'Filtered {signal}', linewidth=0.5)
+            # Fix exponential fit column reference
+            ax1.plot(self.data_seconds['TimeStamp'], self.exp_fits[f'expfit_{signal[-3:]}'],
+                color='black', alpha=1, label='Exponential fit', linewidth=1)
+            ax1.set_title(f'Exponential Fit - {signal}')
+            ax1.legend(loc='upper right')
+            
+            # 2. Z-scored signal
+            ax2 = fig.add_subplot(gs[idx*3 + 1])
+            ax2.plot(self.data_seconds['TimeStamp'], self.zscored[f'z_{signal[-3:]}'],
+                    color=self.colors[idx], linewidth=0.2)
+            ax2.set_title(f'Z-scored Signal - {signal}')
+            
+            # 3. dF/F signal
+            ax3 = fig.add_subplot(gs[idx*3 + 2])
+            ax3.plot(self.data_seconds['TimeStamp'], self.deltaF_F[f'{signal[-3:]}_dfF'],
+                    color=self.colors[idx],linewidth=0.2)
+            ax3.set_title(f'ΔF/F Signal - {signal}')
+        
+        # Final formatting
+        plt.xlabel('Time (s)')
+        filter_method = self.Info['filtering_method'][signal]
+        detrend_method = self.Info['detrend_method']
+        fig.suptitle(f'Signal Processing Steps - {self.mousename}\nFiltering: {filter_method}, Detrending: {detrend_method}', 
+                    y=0.95, fontsize=MEDIUM_SIZE)
+        plt.tight_layout()
+        
+        # Save figures in multiple formats
+        base_path = f'{self.save_path}/all_signals_{self.mousename}'
+        plt.savefig(f'{base_path}.png', bbox_inches='tight', dpi=300)
+        plt.savefig(f'{base_path}.eps', bbox_inches='tight', format='eps')
+        plt.close()
