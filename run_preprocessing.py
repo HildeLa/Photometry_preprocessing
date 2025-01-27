@@ -34,7 +34,7 @@ for path in paths:
     processed.data_detrended, processed.exp_fits = processed.detrend()
     processed.motion_corr = processed.movement_correct()
     processed.zscored = processed.z_score(motion = False)
-    processed.deltaF_F = processed.deltaF_F(motion = False)
+    processed.deltaF_F = processed.get_deltaF_F(motion = False)
     processed.crucial_info = processed.add_crucial_info()
 
     processed.info_csv = processed.write_info_csv()
