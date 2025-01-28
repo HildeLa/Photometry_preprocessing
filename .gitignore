@@ -1,54 +1,18 @@
-# macOS
+
+.ipynb_checkpoints/preprocess_functions-checkpoint.py
+.ipynb_checkpoints/preprocess_in_notebook-checkpoint.ipynb
+*.pyc
+Processed/GRAB_agonist_test/30mgkg_wakeup/B2M6_2024_07_03-14_00_56/.ipynb_checkpoints/events-checkpoint.csv
+*.png
+Processed/GRAB_agonist_test/30mgkg_wakeup/B2M6_2024_07_03-14_00_56/events.csv
+Processed/test_data/vers1_spatiotemporal/B3M3_2024_07_18-17_06_55/events.csv
+Processed/GRAB_agonist_test/wakeup/B2M6_2024_06_07-18_07_38/preprocessed.csv
+Processed/GRAB_agonist_test/wakeup/B2M6_2024_06_07-18_07_38/events.csv
+Processed/GRAB_agonist_test/wakeup/B2M6_2024_06_07-18_07_38/.ipynb_checkpoints/events-checkpoint.csv
+Processed/GRAB_agonist_test/noinject_wakeup/B3M5_2024_07_08-16_04_05/preprocessed.csv
+Processed/GRAB_agonist_test/noinject_wakeup/B3M5_2024_07_08-16_04_05/events.csv
+Processed/GRAB_agonist_test/30mgkg_wakeup/B3M8_2024_07_09-17_37_29/preprocessed.csv
+*.csv
+/.ipynb_checkpoints
+/.ipynb_checkpoints
 .DS_Store
-.AppleDouble
-.LSOverride
-.Spotlight-V100
-.Trashes
-
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-$RECYCLE.BIN/
-
-# Linux
-.cache/
-
-# GitHub Desktop
-*.lock
-
-# Editors and IDEs
-.vscode/
-.idea/
-*.code-workspace
-*.swp
-*.swo
-*.un~
-
-# Python
-*.py[cod]
-__pycache__/
-env/
-venv/
-
-# Node.js
-node_modules/
-npm-debug.log*
-
-# Build Artifacts
-*.o
-*.so
-*.dll
-*.exe
-
-# Logs
-*.log
-
-# Jupyter Notebook checkpoints
-.ipynb_checkpoints/
-.local/share/jupyter/runtime/
-.jupyter/
-
-# Jupyter output management (optional, use nbstripout for cleaner commits)
-
-.ipynb_checkpoints/process_in_notebook_Ede_dev-checkpoint.ipynb
