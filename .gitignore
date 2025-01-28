@@ -51,3 +51,4 @@ npm-debug.log*
 
 # Jupyter output management (optional, use nbstripout for cleaner commits)
 
+.ipynb_checkpoints/process_in_notebook_Ede_dev-checkpoint.ipynb
