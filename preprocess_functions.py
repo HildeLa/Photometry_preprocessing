@@ -159,7 +159,7 @@ class preprocess:
         recording_time = self.path.split('/')[-2][:]  # use same file name as folder
         mousename = self.path.split('/')[-3]#[:6]
         mousename_recordtime = f'{mousename}_{recording_time}'
-        print(f'Preprocessing data for {mousename} at {recording_time}...\n')
+        print(f'\n\033[1mPreprocessing data for {mousename} at {recording_time}...\033[0m\n')
         experiments = self.path.split('/')[-4][:]  #
         session = self.path.split('/')[-3][5:] #FIXME remove as not used 
         if '&' in session:
