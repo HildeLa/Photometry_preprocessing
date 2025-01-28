@@ -1,11 +1,11 @@
 # Photometry_preprocessing
  For preprocessing photometry signal
  #### 1) preprocess_functions.py 
- --- All funcitons needed to perform preprocessing, saving a summary figure and output data files for further processing in the vestibular_vr_pipeline
+ All funcitons needed to perform preprocessing, saving a summary figure and output data files for further processing in the vestibular_vr_pipeline
  #### 2) preprocess_in_notebook_or_batch.ipynb 
- --- Example jupyter notebook for preprocessing and viewing an experiment step by step, or in a batch for a set of experiments 
+ Example jupyter notebook for preprocessing and viewing an experiment step by step, or in a batch for a set of experiments 
  #### 3) run_preprocessing.py
-  --- Example for running preprocessing from terminal. Created before Jan 2025 refactoring, need to be updated based on the notebook batch processing part.
+ Example for running preprocessing from terminal. Created before Jan 2025 refactoring, need to be updated based on the notebook batch processing part.
 
 ## Required data folder structure
 From [issue 25](https://github.com/ikharitonov/vestibular_vr_pipeline/issues/25) in vestibular_vr_pipeline. 
