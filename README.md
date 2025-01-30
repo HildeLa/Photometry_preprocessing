@@ -1,20 +1,32 @@
 # Photometry_preprocessing
  For preprocessing photometry signal
  #### 1) preprocess_functions.py 
- --- All funcitons needed to perform preprocessing
- #### 2) preprocess_in_notebook.ipynb 
- --- Example for running preprocessing from a jupyter notebook, where recordings can be viewed step by step and one by one, or in bulk
+ All funcitons needed to perform preprocessing, saving a summary figure and output data files for further processing in the vestibular_vr_pipeline
+ #### 2) preprocess_in_notebook_or_batch.ipynb 
+ Example jupyter notebook for preprocessing and viewing an experiment step by step, or in a batch for a set of experiments 
  #### 3) run_preprocessing.py
-  --- Example for running preprocessing from terminal. Need to edit to provide root path or specific path to access one or more recrodings
-  
+ Example for running preprocessing from terminal. Created before Jan 2025 refactoring, need to be updated based on the notebook batch processing part.
 
-## preprocess_functions.py
+## Required data folder structure
+From [issue 25](https://github.com/ikharitonov/vestibular_vr_pipeline/issues/25) in vestibular_vr_pipeline. 
+- CohortX (numbered cohort of animals) 
+  - experimentType_day (e.g. VestibularMismatch_day1)
+    - root_data directory (animalID_yyyy-mm-ddThh-mm-ss)
+      - All Bonsai acquired data (HarpData, ONIX, ExperimentEvents, SessionSettings, VideoData)
+      - photometry (fluorescence_unaligned.csv, etc...)
+     - root_results directory (animalID_yyyy-mm-ddThh-mm-ss_processedData)
+       - SLEAP-output (output files from SLEAP inference) 
+       - photometry-processed 
+       - extracted ONIX data combined with synchronised photometry and eye data (single hdf5 file?)
+       - figures 
+
+## preprocess_functions.py - Not updated after Jan 2025 refactoring 
   Class of funcitons 
-  Contains all funcitons needed to analyse photometry singal.
-  - Uses Fluorescence_unaligned.csv and Events.csv to align all data to timestamps of 470 nm recordings. Can be changed in function create_basics() in line 79. (or near)
+  Contains all funcitons needed to analyse photometry signal.
+  - Uses Fluorescence_unaligned.csv and Events.csv to align all data to timestamps of 470 nm recordings. Can be changed in function create_basics().
   - in create_basics() first 15 seconds are cut in line data = rawdata[rawdata["TimeStamp"] > 15000]  - can be changed, but keep in mind initial bleaching and the effect on later detrending of data
   - Extracts events with extract_events() func into an events property that can later be saved them in a new Events.csv where each event is aligned to the main data as a boolean.
-  - Can perform butterworth low-pass filter with cut-off frequency based on sensor. List of sensors must be updated in the low_pass_filt() function.
+  - Can perform butterworth low-pass filter with cut-off frequency based on sensor on at ~Nyquist frequncy. List of sensors must be updated in the low_pass_filt() function.
   - detrent() can be called to fit a double exponetial to each of the signals, subtracting this to adjust for bleaching during the recording.
   - movement_correct() can be called on to use the 410 isosbestic to motion correct the 470 nm signal.
   - z-scoring can be performed by subtracting the median and dividing by standard deviation of the entire signal 
