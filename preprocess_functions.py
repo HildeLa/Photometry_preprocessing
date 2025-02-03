@@ -114,7 +114,7 @@ class preprocess:
         fluorescence_path = self.path + 'Fluorescence-unaligned.csv'  # fluorescence with precise timestamps
 
         # get parameters from path name
-        mousename = self.path.split('/')[-3][:6]
+        mousename = self.path.split('/')[-3][:7]
         session = self.path.split('/')[-3][8:]
         if '&' in session:
             session = session.replace('&', '-') 
@@ -144,7 +144,7 @@ class preprocess:
         #rename the 'Name' column in events to 'Event'
         events.rename(columns={'Name': 'Event'}, inplace=True)
         
-        # Create separate dataframes for each wavelength
+        # Create and fill separate dataframes for each wavelength
         df_470 = fluorescence[fluorescence['Lights'] == 470][['TimeStamp', 'Channel1']].rename(columns={'Channel1': '470'})
         df_410 = fluorescence[fluorescence['Lights'] == 410][['TimeStamp', 'Channel1']].rename(columns={'Channel1': '410'})
         df_560 = fluorescence[fluorescence['Lights'] == 560][['TimeStamp', 'Channel1']].rename(columns={'Channel1': '560'})
@@ -168,15 +168,16 @@ class preprocess:
             rawdata = df_final
             rawdata = rawdata.loc[:, ~rawdata.columns.str.contains('^Unnamed')]
             #data = rawdata[rawdata["TimeStamp"] > 30] FIXME if this line is needed, weird magic number plus there should always be events 
+            data = rawdata
         else:
             rawdata = pd.merge_asof(df_final, events[['TimeStamp', 'Event', 'State']], on='TimeStamp', direction='backward') #FIXME this is not saved in the Events.csv file
             rawdata = rawdata.loc[:,~rawdata.columns.str.contains('^Unnamed')]  # sometimes an Unnamed column has appeared...
             # removing first 15 seconds because of bleaching
             if cutstart:
                 # Remove initial bleaching period (first 15 seconds)
-                 data = rawdata[rawdata["TimeStamp"] > 15000]  
+                data = rawdata[rawdata["TimeStamp"] > 15000]  
             else:
-                data = rawdata[rawdata["TimeStamp"] > -1]
+                data = rawdata
         if cutend == True:
             data = data.drop(data.tail(300).index) #This can be done if fiber was by mistake removed before NOTE why 300?
         
