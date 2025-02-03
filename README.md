@@ -1,7 +1,7 @@
 # Moved to ranczlab/vestibular_vr_processing repo 
 # This repo is archived as of 03 Feb 2025
 
-# Photometry_preprocessing
+### Photometry_preprocessing
  For preprocessing photometry signal
  #### 1) preprocess_functions.py 
  All funcitons needed to perform preprocessing, saving a summary figure and output data files for further processing in the vestibular_vr_pipeline
